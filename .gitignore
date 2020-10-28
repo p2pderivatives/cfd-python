@@ -127,3 +127,18 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+*.lock
+
+external/*
+!external/CMakeLists.txt
+!external/googletest_CMakeLists.txt.in
+!external/template_CMakeLists.txt.in
+
+cmake_build/
+.vscode/
+
+/doc/html*
+/doc/latex
+/**/*_localdebug.bat
+/*.whl
