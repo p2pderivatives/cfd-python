@@ -71,7 +71,7 @@ attention: [using python 3.7 or lower on windows](#using-python-37-or-lower-on-w
 ### install from GitHub
 
 ```
-pip install --user git+https://github.com/cryptogarageinc/cfd-python@master
+pip install --user git+https://github.com/p2pderivatives/cfd-python@master
 ```
 
 ### install from source code
@@ -83,7 +83,7 @@ pip install --user .
 
 ### install from wheel
 
-1. get releases asset. (ex. https://github.com/cryptogarageinc/cfd-python/releases/download/v0.0.1/cfd-0.0.1-py3-none-win_amd64.whl )
+1. get releases asset. (ex. https://github.com/p2pderivatives/cfd-python/releases/download/v0.0.1/cfd-0.0.1-py3-none-win_amd64.whl )
 2. install pip
    ```
    pip install --user cfd-0.0.1-py3-none-win_amd64.whl
