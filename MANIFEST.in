@@ -1,0 +1,12 @@
+include CMakeLists.txt LICENSE README.md template_CMakeLists.txt VERSION Pipfile
+include *.py *.c *.cpp *.h *.config *.cmake
+graft cfd
+prune cfd/__pycache__
+graft tests
+prune tests/__pycache__
+graft cmake
+graft external
+prune external/cfd
+prune external/cfd-core
+prune external/libwally-core
+graft local_resource

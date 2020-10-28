@@ -1,0 +1,63 @@
+name: sprint pre-merge check
+
+on: 
+  push:
+    branches:
+    - features/sprint*
+    paths-ignore:
+    - '.github/workflows/create_release-and-upload.yml'
+    - 'README.md'
+  pull_request:
+    branches:
+    - features/sprint*
+
+jobs:
+  build-and-test:
+    name: build & test
+    timeout-minutes: 20
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+        py-ver: [3.6, 3.7, 3.8, pypy3]
+        exclude:
+          - os: macos-latest
+            py-ver: 3.6
+          - os: macos-latest
+            py-ver: 3.7
+          - os: windows-latest
+            py-ver: 3.6
+          - os: windows-latest
+            py-ver: pypy3
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.py-ver }}
+    - name: Display Python version
+      run: python -c "import sys; print(sys.version)"
+    - name: build
+      run: python setup.py build
+    - name: copy dll
+      if: runner.os == 'Windows' && matrix.py-ver == '3.7'
+      run: |
+        cp ./cmake_build/Release/*.dll ./cfd/
+        echo "$GITHUB_WORKSPACE/cfd" >> $GITHUB_PATH
+      shell: bash
+    - name: test
+      run: python -m unittest discover -v tests
+
+  doxygen-ubuntu:
+    name: doxygen-ubuntu
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: install_doxygen
+      run: sudo apt install doxygen graphviz
+    - name: doxygen_check
+      run: |
+        cd doc
+        doxygen Doxyfile_quiet_all

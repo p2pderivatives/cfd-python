@@ -1,0 +1,24 @@
+[dev-packages]
+autopep8 = "*"
+flake8 = "*"
+coverage = "*"
+
+[packages]
+
+[scripts]
+test = "python -m unittest discover -v tests"
+test3 = "python3 -m unittest discover -v tests"
+coverage = "coverage run --source cfd -m unittest discover -v tests"
+report = "coverage report -m"
+report_html = "coverage html"
+report_xml = "coverage xml"
+format = "autopep8 --aggressive --aggressive -ir setup.py cfd tests"
+format_detail = "autopep8 --aggressive --aggressive -ivr setup.py cfd tests"
+format_check = "autopep8 -d -r setup.py src"
+lint = "flake8 --show-source setup.py cfd tests"
+cleanup = "python ./tools/cleanup.py cmake_build"
+build = "python ./setup.py build"
+build3 = "python3 ./setup.py build"
+doc = "cd doc && doxygen Doxyfile_quiet_all"
+pip_install = "pip install"
+pip_list = "pip list"
