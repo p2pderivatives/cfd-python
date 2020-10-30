@@ -1085,10 +1085,21 @@ class Transaction(_TransactionBase):
                 tx_handle.get_handle(), int(key.value),
                 int(i_val), float(f_val), b_val)
 
+        network = self.NETWORK
+        if len(str(reserved_address)) > 0:
+            if isinstance(reserved_address, Address):
+                check_addr = reserved_address
+            else:
+                check_addr = AddressUtil.parse(reserved_address)
+            temp_network = Network.get(check_addr.network)
+            if temp_network in [Network.MAINNET,
+                                Network.TESTNET, Network.REGTEST]:
+                network = temp_network.value
+
         with util.create_handle() as handle:
             word_handle = util.call_func(
                 'CfdInitializeFundRawTx', handle.get_handle(),
-                self.NETWORK, 1, '')
+                network, 1, '')
             with JobHandle(handle, word_handle,
                            'CfdFreeFundRawTxHandle') as tx_handle:
                 for utxo in txin_utxo_list:
