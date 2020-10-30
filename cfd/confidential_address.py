@@ -3,7 +3,7 @@
 # @file confidential_address.py
 # @brief elements confidential address function implements file.
 # @note Copyright 2020 CryptoGarage
-from .util import get_util, to_hex_string
+from .util import get_util, to_hex_string, CfdError
 
 
 ##
@@ -19,6 +19,23 @@ class ConfidentialAddress:
     ##
     # @var confidential_key
     # confidential key
+
+    ##
+    # @brief check confidential address.
+    # @param[in] confidential_address   confidential address
+    # @retval True      confidential address
+    # @retval False     other
+    @classmethod
+    def valid(cls, confidential_address):
+        util = get_util()
+        try:
+            with util.create_handle() as handle:
+                _, _, _ = util.call_func(
+                    'CfdParseConfidentialAddress', handle.get_handle(),
+                    str(confidential_address))
+                return True
+        except CfdError:
+            return False
 
     ##
     # @brief parse confidential address.

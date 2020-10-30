@@ -5,10 +5,12 @@
 # @note Copyright 2020 CryptoGarage
 from .util import ReverseByteData, CfdError, JobHandle,\
     CfdErrorCode, to_hex_string, get_util, ByteData
+from .address import Address, AddressUtil
 from .key import Network, SigHashType, Privkey
 from .script import HashType
 from .transaction import UtxoData, OutPoint, Txid, TxIn, TxOut, _FundTxOpt,\
     _TransactionBase
+from .confidential_address import ConfidentialAddress
 from enum import Enum
 import copy
 import ctypes
@@ -1379,10 +1381,28 @@ class ConfidentialTransaction(_TransactionBase):
                 tx_handle.get_handle(), key.value,
                 int(i_val), float(f_val), b_val)
 
+        network = self.NETWORK
+        for target in target_list:
+            if len(str(target.reserved_address)) > 0:
+                check_addr = target.reserved_address
+                if ConfidentialAddress.valid(check_addr):
+                    if isinstance(check_addr, ConfidentialAddress):
+                        check_addr = check_addr.address
+                    else:
+                        check_addr = ConfidentialAddress.parse(
+                            check_addr).address
+                if not isinstance(check_addr, Address):
+                    check_addr = AddressUtil.parse(check_addr)
+                temp_network = Network.get(check_addr.network)
+                if temp_network in [Network.LIQUID_V1,
+                                    Network.ELEMENTS_REGTEST]:
+                    network = temp_network.value
+                    break
+
         with util.create_handle() as handle:
             work_handle = util.call_func(
                 'CfdInitializeFundRawTx', handle.get_handle(),
-                self.NETWORK, len(target_list), str(fee_asset))
+                network, len(target_list), str(fee_asset))
             with JobHandle(handle, work_handle,
                            'CfdFreeFundRawTxHandle') as tx_handle:
                 for utxo in txin_utxo_list:
