@@ -14,7 +14,7 @@ on:
 env:
   GITHUB_VERSION: v0.0.5
   DOCKER_PYTHON_VERSION: 3.7
-  GITHUB_DOCKER_IMAGE: docker.pkg.github.com/${{ github.repository_owner }}/elements-testing-dockerfile/elements-testing
+  GITHUB_DOCKER_IMAGE: docker.pkg.github.com/cryptogarageinc/elements-testing-dockerfile/elements-testing
   ENTRYPOINT_PATH: /github/workspace/.github/workflows/docker/test_entrypoint.sh
 
 jobs:
