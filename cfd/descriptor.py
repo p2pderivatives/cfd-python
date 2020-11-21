@@ -199,8 +199,11 @@ class DescriptorScriptData:
     # @var address
     # address
     ##
+    # @var locking_script
+    # locking script
+    ##
     # @var redeem_script
-    # redeem script
+    # redeem script for script hash
     ##
     # @var key_data
     # key data
@@ -217,12 +220,14 @@ class DescriptorScriptData:
     # @param[in] depth          depth
     # @param[in] hash_type      hash type
     # @param[in] address        address
+    # @param[in] locking_script locking script
     # @param[in] redeem_script  redeem script
     # @param[in] key_data       key data
     # @param[in] key_list       key list
     # @param[in] multisig_require_num   multisig require num
     def __init__(
             self, script_type, depth, hash_type, address,
+            locking_script,
             redeem_script='',
             key_data=None,
             key_list=[],
@@ -231,6 +236,7 @@ class DescriptorScriptData:
         self.depth = depth
         self.hash_type = hash_type
         self.address = address
+        self.locking_script = locking_script
         self.redeem_script = redeem_script
         self.key_data = key_data
         self.key_list = key_list
@@ -313,7 +319,8 @@ class Descriptor:
                     if _script_type != DescriptorScriptType.RAW:
                         _hash_type = HashType.get(hash_type)
                     data = DescriptorScriptData(
-                        _script_type, depth, _hash_type, address)
+                        _script_type, depth, _hash_type, address,
+                        locking_script)
                     if _script_type in {
                             DescriptorScriptType.COMBO,
                             DescriptorScriptType.PK,
@@ -328,9 +335,8 @@ class Descriptor:
                             DescriptorScriptType.MULTI,
                             DescriptorScriptType.SORTED_MULTI}:
                         data.address = AddressUtil.parse(address, hash_type)
-                        if is_multisig is False:
-                            data.redeem_script = redeem_script
-                        else:
+                        data.redeem_script = redeem_script
+                        if is_multisig:
                             key_list = []
                             for i in range(max_key_num):
                                 key_info = DescriptorKeyData(*get_key(i))
@@ -352,8 +358,8 @@ class Descriptor:
     # @brief analyze descriptor.
     # @return reference data
     def _analyze(self):
-        if (self.script_list[0].hash_type in {
-                HashType.P2WSH, HashType.P2SH}) and (
+        if (self.script_list[0].hash_type in [
+                HashType.P2WSH, HashType.P2SH]) and (
                 len(self.script_list) > 1) and (
                 self.script_list[1].hash_type == HashType.P2PKH):
             data = DescriptorScriptData(
@@ -361,7 +367,8 @@ class Descriptor:
                 self.script_list[0].depth,
                 self.script_list[0].hash_type,
                 self.script_list[0].address,
-                self.script_list[0].redeem_script,
+                self.script_list[0].locking_script,
+                self.script_list[1].locking_script,
                 self.script_list[1].key_data)
             return data
 
@@ -373,6 +380,7 @@ class Descriptor:
                 self.script_list[0].depth,
                 self.script_list[0].hash_type,
                 self.script_list[0].address,
+                self.script_list[0].locking_script,
                 self.script_list[1].redeem_script,
                 self.script_list[2].key_data)
             return data
@@ -387,6 +395,7 @@ class Descriptor:
                     self.script_list[0].depth,
                     self.script_list[0].hash_type,
                     self.script_list[0].address,
+                    self.script_list[0].locking_script,
                     self.script_list[1].redeem_script,
                     key_list=self.script_list[1].key_list,
                     multisig_require_num=multisig_require_num)
@@ -397,6 +406,7 @@ class Descriptor:
                     self.script_list[0].depth,
                     self.script_list[0].hash_type,
                     self.script_list[0].address,
+                    self.script_list[0].locking_script,
                     self.script_list[1].redeem_script)
                 return data
         elif self.script_list[0].hash_type == HashType.P2SH_P2WPKH:
@@ -405,6 +415,7 @@ class Descriptor:
                 self.script_list[0].depth,
                 self.script_list[0].hash_type,
                 self.script_list[0].address,
+                self.script_list[0].locking_script,
                 key_data=self.script_list[1].key_data)
             return data
         return self.script_list[0]

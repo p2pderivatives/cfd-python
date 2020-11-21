@@ -1,0 +1,17 @@
+version: '3.5'
+
+services:
+  cfd-py-build:
+    container_name: 'cfd-python-builder'
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: cfdPythonBuilder
+    environment:
+      CFD_SRC: /private/cfd-python
+      CFD_WORK: /private/work/cfd-python
+    working_dir: /private/cfd-python
+    volumes:
+      - /private/work
+      - .:/private/cfd-python
+    entrypoint: /private/cfd-python/tools/build_for_docker.sh

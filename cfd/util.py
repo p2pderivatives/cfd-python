@@ -468,6 +468,7 @@ class CfdUtil:
         ("CfdAddBlindTxOutData", c_int, [c_void_p, c_void_p, c_uint32, c_char_p]),  # noqa: E501
         ("CfdAddBlindTxOutByAddress", c_int, [c_void_p, c_void_p, c_char_p]),  # noqa: E501
         ("CfdFinalizeBlindTx", c_int, [c_void_p, c_void_p, c_char_p, c_char_p_p]),  # noqa: E501
+        ("CfdGetBlindTxBlindData", c_int, [c_void_p, c_void_p, c_uint32, c_uint32_p, c_char_p_p, c_int64_p, c_char_p_p, c_char_p_p, c_char_p_p, c_uint32_p, c_bool_p, c_bool_p]),  # noqa: E501
         ("CfdFreeBlindHandle", c_int, [c_void_p, c_void_p]),  # noqa: E501
         ("CfdAddConfidentialTxSign", c_int, [c_void_p, c_char_p, c_char_p, c_uint32, c_bool, c_char_p, c_bool, c_char_p_p]),  # noqa: E501
         ("CfdAddConfidentialTxDerSign", c_int, [c_void_p, c_char_p, c_char_p, c_uint32, c_bool, c_char_p, c_int, c_bool, c_bool, c_char_p_p]),  # noqa: E501

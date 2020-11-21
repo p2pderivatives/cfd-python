@@ -13,6 +13,12 @@ on:
     - develop
     - test_ci
 
+env:
+  GITHUB_VERSION: v0.0.5
+  DOCKER_PYTHON_VERSION: 3.7
+  GITHUB_DOCKER_IMAGE: docker.pkg.github.com/cryptogarageinc/elements-testing-dockerfile/elements-testing
+  ENTRYPOINT_PATH: /github/workspace/.github/workflows/docker/test_entrypoint.sh
+
 jobs:
   build-and-test:
     name: build & test
@@ -21,10 +27,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
-        py-ver: [3.6, 3.7, 3.8, pypy3]
+        os: [macos-10.15, windows-2019, ubuntu-18.04]
+        py-ver: [3.6, 3.7, 3.8, 3.9, pypy3]
         exclude:
-          - os: windows-latest
+          - os: windows-2019
             py-ver: pypy3
 
     steps:
@@ -53,14 +59,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
-        py-ver: [3.6, 3.7, 3.8, pypy3]
+        os: [macos-10.15, macos-11.0, windows-2019, ubuntu-18.04, ubuntu-20.04]
+        py-ver: [3.6, 3.7, 3.8, 3.9, pypy3]
         exclude:
-          - os: windows-latest
+          - os: windows-2019
             py-ver: 3.6
-          - os: windows-latest
+          - os: windows-2019
             py-ver: 3.7
-          - os: windows-latest
+          - os: windows-2019
+            py-ver: pypy3
+          - os: macos-11.0
             py-ver: pypy3
 
     steps:
@@ -80,9 +88,32 @@ jobs:
     - name: call example
       run: python ./tools/example.py
 
+  e2e-test:
+    timeout-minutes: 20
+    name: e2e-test
+    runs-on: ubuntu-18.04
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ env.DOCKER_PYTHON_VERSION }}
+    - name: Display Python version
+      run: python -c "import sys; print(sys.version)"
+    - name: install pip
+      run: python -m pip install -U pip
+    - name: create wheel
+      run: pip wheel .
+    - name: e2e-test
+      run: |
+        docker login docker.pkg.github.com -u owner -p ${{ secrets.GITHUB_TOKEN }}
+        docker pull ${{ env.GITHUB_DOCKER_IMAGE }}:${{ env.GITHUB_VERSION }}
+        docker run -v ${{ github.workspace }}:/github/workspace --entrypoint ${{ env.ENTRYPOINT_PATH }} ${{ env.GITHUB_DOCKER_IMAGE }}:${{ env.GITHUB_VERSION }}
+
   doxygen-ubuntu:
     name: doxygen-ubuntu
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-18.04
     steps:
     - uses: actions/checkout@v2
     - name: install_doxygen

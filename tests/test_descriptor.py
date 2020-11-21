@@ -38,28 +38,33 @@ def test_descriptor_func(obj, name, case, req, exp, error):
 
             def check_keys(target, exp, depth, index=-1):
                 assert_equal(obj, name, case, exp,
-                             target.key_type.as_str(),
+                             target.key_type.as_str(), 'keyType',
                              'keyType:{}:{}'.format(depth, index))
                 assert_equal(obj, name, case, exp,
-                             str(target),
+                             str(target), 'key',
                              'key:{}:{}'.format(depth, index))
 
             def check_descriptor_item(data, exp, depth=-1):
                 assert_equal(obj, name, case, exp,
                              data.script_type.as_str(),
-                             'type:{}'.format(depth))
+                             'type', 'type:{}'.format(depth))
                 assert_equal(obj, name, case, exp,
-                             data.address, 'address:{}'.format(depth))
+                             data.address, 'address',
+                             'address:{}'.format(depth))
                 assert_equal(obj, name, case, exp,
-                             data.depth, 'depth:{}'.format(depth))
+                             data.depth, 'depth', 'depth:{}'.format(depth))
                 assert_equal(obj, name, case, exp,
-                             data.hash_type, 'hashType:{}'.format(depth))
+                             data.hash_type, 'hashType',
+                             'hashType:{}'.format(depth))
                 assert_equal(obj, name, case, exp,
-                             data.redeem_script,
-                             'lockingScript:{}'.format(depth))
+                             str(data.locking_script),
+                             'lockingScript', 'lockingScript:{}'.format(depth))
+                assert_equal(obj, name, case, exp,
+                             str(data.redeem_script),
+                             'redeemScript', 'redeemScript:{}'.format(depth))
                 assert_equal(obj, name, case, exp,
                              data.multisig_require_num,
-                             'reqNum:{}'.format(depth))
+                             'reqNum', 'reqNum:{}'.format(depth))
                 if data.key_data is not None:
                     check_keys(data.key_data, exp, depth)
 
