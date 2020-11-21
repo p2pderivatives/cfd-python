@@ -1,0 +1,11 @@
+version: '3.5'
+
+services:
+  cfd-python-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./test_entrypoint.sh:/root/test_entrypoint.sh
+      - .:/root/integration_test
+    entrypoint: "sh -c \"/root/test_entrypoint.sh\""

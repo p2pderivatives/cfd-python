@@ -8,7 +8,7 @@ on:
 jobs:
   create_releases:
     name: create-releases
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-18.04
     outputs:
       release_url: ${{ steps.output_url.outputs.upload_url }}
 
@@ -53,7 +53,7 @@ jobs:
     name: upload-sdist
     needs: create_releases
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-18.04
 
     steps:
     - name: checkout
@@ -109,7 +109,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-10.15, windows-latest, ubuntu-18.04]
+        os: [macos-10.15, windows-2019, ubuntu-18.04]
         include:
           - os: macos-10.15
             py-ver: 3.6
@@ -117,7 +117,7 @@ jobs:
           - os: ubuntu-18.04
             py-ver: 3.6
             pl-name: linux_x86_64
-          - os: windows-latest
+          - os: windows-2019
             py-ver: 3.8
             pl-name: win_amd64
 

@@ -59,7 +59,8 @@ def exec_test(test_obj, test_name, test_func):
                 raise e
 
 
-def assert_equal(test_obj, test_name, case, expect, value, param_name=''):
+def assert_equal(test_obj, test_name, case, expect, value,
+                 param_name='', log_name=''):
     if isinstance(value, bool) or isinstance(value, int):
         _value = value
     else:
@@ -73,9 +74,10 @@ def assert_equal(test_obj, test_name, case, expect, value, param_name=''):
             err_msg, _value,
             'Fail: {}:{}'.format(test_name, case))
     elif param_name in expect:
+        fail_param_name = log_name if log_name else param_name
         test_obj.assertEqual(
             expect[param_name], _value,
-            'Fail: {}:{}:{}'.format(test_name, case, param_name))
+            'Fail: {}:{}:{}'.format(test_name, case, fail_param_name))
 
 
 def assert_match(test_obj, test_name, case, expect, value, param_name):

@@ -320,7 +320,7 @@ class Privkey:
             signature = util.call_func(
                 'CfdCalculateEcSignature', handle.get_handle(),
                 _sighash, self.hex, '', self.network.value, grind_r)
-            sign = SignParameter(signature)
+            sign = SignParameter(signature, self.pubkey)
             sign.use_der_encode = True
             return sign
 

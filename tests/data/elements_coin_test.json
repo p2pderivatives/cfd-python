@@ -64,10 +64,7 @@
                     ],
                     "feeAmount": 3320,
                     "utxoFeeAmount": 1820
-                },
-                "exclude": [
-                    "python"
-                ]
+                }
             },
             {
                 "case": "ElementsSelectCoinsTest03",

@@ -1,0 +1,21 @@
+[dev-packages]
+autopep8 = "*"
+flake8 = "*"
+
+[packages]
+python-bitcoinrpc = "*"
+
+[scripts]
+test = "python -m unittest discover -v tests"
+test3 = "python3 -m unittest discover -v tests"
+test_bitcoin = "python tests/test_bitcoin.py -v"
+test3_bitcoin = "python3 tests/test_bitcoin.py -v"
+test_elements = "python tests/test_elements.py -v"
+test3_elements = "python3 tests/test_elements.py -v"
+format = "autopep8 --aggressive --aggressive -ir setup.py cfd tests"
+format_detail = "autopep8 --aggressive --aggressive -ivr setup.py cfd tests"
+format_check = "autopep8 -d -r setup.py src"
+lint = "flake8 --show-source setup.py cfd tests"
+pip_list = "pip list"
+pip_install = "pip install "
+pip_uninstall = "pip uninstall "
