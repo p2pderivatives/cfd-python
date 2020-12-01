@@ -3,7 +3,9 @@
 # @file key.py
 # @brief key function implements file.
 # @note Copyright 2020 CryptoGarage
-from .util import get_util, CfdError, to_hex_string, CfdErrorCode, JobHandle
+from typing import Optional, Union
+import typing
+from .util import ByteData, get_util, CfdError, to_hex_string, CfdErrorCode, JobHandle
 import hashlib
 from enum import Enum
 
@@ -34,13 +36,13 @@ class Network(Enum):
     ##
     # @brief get string.
     # @return name.
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name.lower().replace('_', '')
 
     ##
     # @brief get string.
     # @return name.
-    def as_str(self):
+    def as_str(self) -> str:
         return self.name.lower().replace('_', '')
 
     ##
@@ -48,7 +50,7 @@ class Network(Enum):
     # @param[in] network    network
     # @return object.
     @classmethod
-    def get(cls, network):
+    def get(cls, network) -> 'Network':
         if (isinstance(network, Network)):
             return network
         elif (isinstance(network, int)):
@@ -74,7 +76,7 @@ class Network(Enum):
     # @param[in] network    network
     # @return object.
     @classmethod
-    def get_mainchain(cls, network):
+    def get_mainchain(cls, network) -> 'Network':
         _network = cls.get(network)
         if _network == Network.LIQUID_V1:
             _network = Network.MAINNET
@@ -109,32 +111,32 @@ class SigHashType(Enum):
     ##
     # @brief get string.
     # @return name.
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name.lower().replace('_', '')
 
     ##
     # @brief get string.
     # @return name.
-    def as_str(self):
+    def as_str(self) -> str:
         return self.name.lower().replace('_', '')
 
     ##
     # @brief get type value.
     # @return value.
-    def get_type(self):
+    def get_type(self) -> int:
         return self.value & 0x0f
 
     ##
     # @brief get anyone can pay flag.
     # @retval True      anyone can pay is true.
     # @retval False     anyone can pay is false.
-    def anyone_can_pay(self):
+    def anyone_can_pay(self) -> bool:
         return self.value >= 0x80
 
     ##
     # @brief get type object.
     # @return object.
-    def get_type_object(self):
+    def get_type_object(self) -> 'SigHashType':
         return self.get(self.get_type())
 
     ##
@@ -143,7 +145,7 @@ class SigHashType(Enum):
     # @param[in] anyone_can_pay     anyone can pay flag
     # @return object.
     @classmethod
-    def get(cls, sighashtype, anyone_can_pay=False):
+    def get(cls, sighashtype, anyone_can_pay: bool = False) -> 'SigHashType':
         if (isinstance(sighashtype, SigHashType)):
             if anyone_can_pay is True:
                 return cls.get(sighashtype.value | 0x80)
@@ -176,21 +178,27 @@ class Privkey:
     ##
     # @var hex
     # privkey hex
+    hex: str
     ##
     # @var wif
     # wallet import format
+    wif: str
     ##
     # @var network
     # network type.
+    network: 'Network'
     ##
     # @var is_compressed
     # pubkey compressed flag
+    is_compressed: bool
     ##
     # @var wif_first
     # wif set flag.
+    wif_first: bool
     ##
     # @var pubkey
     # pubkey
+    pubkey: 'Pubkey'
 
     ##
     # @brief generate key pair.
@@ -198,7 +206,7 @@ class Privkey:
     # @param[in] network        network type
     # @return private key
     @classmethod
-    def generate(cls, is_compressed=True, network=Network.MAINNET):
+    def generate(cls, is_compressed: bool = True, network=Network.MAINNET):
         _network = Network.get_mainchain(network)
         util = get_util()
         with util.create_handle() as handle:
@@ -214,16 +222,30 @@ class Privkey:
     # @param[in] is_compressed  pubkey compressed
     # @return private key
     @classmethod
-    def from_hex(cls, hex, network=Network.MAINNET, is_compressed=True):
+    def from_hex(cls, hex, network=Network.MAINNET, is_compressed: bool = True):
         return Privkey(hex=hex, network=network,
                        is_compressed=is_compressed)
+
+    ##
+    # @brief create privkey from hex string.
+    # @param[in] hex            hex string
+    # @param[in] network        network type
+    # @param[in] is_compressed  pubkey compressed
+    # @return private key or None
+    @classmethod
+    def from_hex_ignore_error(
+            cls, hex, network=Network.MAINNET,
+            is_compressed: bool = True) -> Optional['Privkey']:
+        if not hex:
+            return None
+        return Privkey(hex=hex, network=network, is_compressed=is_compressed)
 
     ##
     # @brief create privkey from hex string.
     # @param[in] wif            wallet import format
     # @return private key
     @classmethod
-    def from_wif(cls, wif):
+    def from_wif(cls, wif: str) -> 'Privkey':
         return Privkey(wif=wif)
 
     ##
@@ -234,10 +256,10 @@ class Privkey:
     # @param[in] is_compressed  pubkey compressed
     def __init__(
             self,
-            wif='',
+            wif: str = '',
             hex='',
             network=Network.MAINNET,
-            is_compressed=True):
+            is_compressed: bool = True):
         self.hex = to_hex_string(hex)
         self.wif = wif
         self.network = Network.get_mainchain(network)
@@ -256,21 +278,22 @@ class Privkey:
                         'CfdParsePrivkeyWif', handle.get_handle(),
                         self.wif)
                 self.network = Network.get_mainchain(self.network)
-            self.pubkey = util.call_func(
+            _pubkey = util.call_func(
                 'CfdGetPubkeyFromPrivkey', handle.get_handle(),
                 self.hex, '', self.is_compressed)
+            self.pubkey = Pubkey(_pubkey)
 
     ##
     # @brief get string.
     # @return pubkey hex.
-    def __str__(self):
+    def __str__(self) -> str:
         return self.wif if (self.wif_first) else self.hex
 
     ##
     # @brief add tweak.
     # @param[in] tweak     tweak bytes. (32 byte)
     # @return tweaked private key
-    def add_tweak(self, tweak):
+    def add_tweak(self, tweak) -> 'Privkey':
         _tweak = to_hex_string(tweak)
         util = get_util()
         with util.create_handle() as handle:
@@ -285,7 +308,7 @@ class Privkey:
     # @brief mul tweak.
     # @param[in] tweak     tweak bytes. (32 byte)
     # @return tweaked private key
-    def mul_tweak(self, tweak):
+    def mul_tweak(self, tweak) -> 'Privkey':
         _tweak = to_hex_string(tweak)
         util = get_util()
         with util.create_handle() as handle:
@@ -299,7 +322,7 @@ class Privkey:
     ##
     # @brief negate.
     # @return negated private key
-    def negate(self):
+    def negate(self) -> 'Privkey':
         util = get_util()
         with util.create_handle() as handle:
             _key = util.call_func(
@@ -313,7 +336,7 @@ class Privkey:
     # @param[in] sighash   sighash
     # @param[in] grind_r   grind-r flag
     # @return signature
-    def calculate_ec_signature(self, sighash, grind_r=True):
+    def calculate_ec_signature(self, sighash, grind_r: bool = True) -> 'SignParameter':
         _sighash = to_hex_string(sighash)
         util = get_util()
         with util.create_handle() as handle:
@@ -332,13 +355,14 @@ class Pubkey:
     ##
     # @var _hex
     # pubkey hex
+    _hex: str
 
     ##
     # @brief combine pubkey.
     # @param[in] pubkey_list   pubkey list
     # @return combined pubkey
     @classmethod
-    def combine(cls, pubkey_list):
+    def combine(cls, pubkey_list) -> 'Pubkey':
         if (isinstance(pubkey_list, list) is False) or (
                 len(pubkey_list) <= 1):
             raise CfdError(
@@ -365,7 +389,10 @@ class Pubkey:
     # @brief constructor.
     # @param[in] pubkey     pubkey
     def __init__(self, pubkey):
-        self._hex = to_hex_string(pubkey)
+        if isinstance(pubkey, Pubkey):
+            self._hex = pubkey._hex
+        else:
+            self._hex = to_hex_string(pubkey)
         # validate
         util = get_util()
         with util.create_handle() as handle:
@@ -375,13 +402,13 @@ class Pubkey:
     ##
     # @brief get string.
     # @return pubkey hex.
-    def __str__(self):
+    def __str__(self) -> str:
         return self._hex
 
     ##
     # @brief compress pubkey.
     # @return compressed pubkey.
-    def compress(self):
+    def compress(self) -> 'Pubkey':
         util = get_util()
         with util.create_handle() as handle:
             _pubkey = util.call_func(
@@ -391,7 +418,7 @@ class Pubkey:
     ##
     # @brief uncompress pubkey.
     # @return uncompressed pubkey.
-    def uncompress(self):
+    def uncompress(self) -> 'Pubkey':
         util = get_util()
         with util.create_handle() as handle:
             _pubkey = util.call_func(
@@ -402,7 +429,7 @@ class Pubkey:
     # @brief add tweak.
     # @param[in] tweak     tweak bytes. (32 byte)
     # @return tweaked public key
-    def add_tweak(self, tweak):
+    def add_tweak(self, tweak) -> 'Pubkey':
         _tweak = to_hex_string(tweak)
         util = get_util()
         with util.create_handle() as handle:
@@ -415,7 +442,7 @@ class Pubkey:
     # @brief mul tweak.
     # @param[in] tweak     tweak bytes. (32 byte)
     # @return tweaked public key
-    def mul_tweak(self, tweak):
+    def mul_tweak(self, tweak) -> 'Pubkey':
         _tweak = to_hex_string(tweak)
         util = get_util()
         with util.create_handle() as handle:
@@ -427,7 +454,7 @@ class Pubkey:
     ##
     # @brief negate.
     # @return negated public key
-    def negate(self):
+    def negate(self) -> 'Pubkey':
         util = get_util()
         with util.create_handle() as handle:
             _pubkey = util.call_func(
@@ -440,13 +467,13 @@ class Pubkey:
     # @param[in] signature  signature
     # @retval True      Verify success.
     # @retval False     Verify fail.
-    def verify_ec_signature(self, sighash, signature):
+    def verify_ec_signature(self, sighash, signature) -> bool:
         try:
             util = get_util()
             with util.create_handle() as handle:
                 util.call_func(
                     'CfdVerifyEcSignature', handle.get_handle(),
-                    sighash, self._hex, signature)
+                    to_hex_string(sighash), self._hex, to_hex_string(signature))
             return True
         except CfdError as err:
             if err.error_code == CfdErrorCode.SIGN_VERIFICATION.value:
@@ -462,15 +489,19 @@ class SignParameter:
     ##
     # @var hex
     # hex data
+    hex: str
     ##
     # @var related_pubkey
     # related pubkey for multisig
+    related_pubkey: Union[str, 'Pubkey']
     ##
     # @var sighashtype
     # sighash type
+    sighashtype: 'SigHashType'
     ##
     # @var use_der_encode
     # use der encode.
+    use_der_encode: bool
 
     ##
     # @brief encode signature to der.
@@ -478,7 +509,7 @@ class SignParameter:
     # @param[in] sighashtype    sighash type
     # @return der encoded signature
     @classmethod
-    def encode_by_der(cls, signature, sighashtype=SigHashType.ALL):
+    def encode_by_der(cls, signature, sighashtype=SigHashType.ALL) -> 'SignParameter':
         _signature = to_hex_string(signature)
         _sighashtype = SigHashType.get(sighashtype)
         util = get_util()
@@ -494,7 +525,7 @@ class SignParameter:
     # @param[in] signature      signature
     # @return der decoded signature
     @classmethod
-    def decode_from_der(cls, signature):
+    def decode_from_der(cls, signature) -> 'SignParameter':
         der_signature = to_hex_string(signature)
         util = get_util()
         with util.create_handle() as handle:
@@ -509,7 +540,7 @@ class SignParameter:
     # @param[in] signature      signature
     # @return normalized signature
     @classmethod
-    def normalize(cls, signature):
+    def normalize(cls, signature) -> 'SignParameter':
         _signature = to_hex_string(signature)
         _sighashtype = SigHashType.ALL
         if isinstance(signature, SignParameter):
@@ -529,20 +560,23 @@ class SignParameter:
     def __init__(self, data, related_pubkey='',
                  sighashtype=SigHashType.ALL, use_der_encode=False):
         self.hex = to_hex_string(data)
-        self.related_pubkey = related_pubkey
+        if isinstance(related_pubkey, Pubkey):
+            self.related_pubkey = related_pubkey
+        else:
+            self.related_pubkey = to_hex_string(related_pubkey)
         self.sighashtype = SigHashType.get(sighashtype)
         self.use_der_encode = use_der_encode
 
     ##
     # @brief get string.
     # @return sing data hex.
-    def __str__(self):
+    def __str__(self) -> str:
         return self.hex
 
     ##
     # @brief set der encode flag.
     # @return void
-    def set_der_encode(self):
+    def set_der_encode(self) -> None:
         self.use_der_encode = True
 
 
@@ -560,7 +594,7 @@ class EcdsaAdaptor:
     # @retval result[1]   adaptor proof
     @classmethod
     def sign(cls, message, secret_key, adaptor,
-             is_message_hashed=True):
+             is_message_hashed=True) -> typing.Tuple['ByteData', 'ByteData']:
         msg = message
         if (not is_message_hashed) and isinstance(message, str):
             m = hashlib.sha256()
@@ -574,7 +608,7 @@ class EcdsaAdaptor:
             signature, proof = util.call_func(
                 'CfdSignEcdsaAdaptor', handle.get_handle(),
                 _msg, _sk, _adaptor)
-        return signature, proof
+        return ByteData(signature), ByteData(proof)
 
     ##
     # @brief adapt.
@@ -582,14 +616,14 @@ class EcdsaAdaptor:
     # @param[in] adaptor_secret     adaptor secret key
     # @return adapted signature
     @classmethod
-    def adapt(cls, adaptor_signature, adaptor_secret):
+    def adapt(cls, adaptor_signature, adaptor_secret) -> 'ByteData':
         _sig = to_hex_string(adaptor_signature)
         _sk = to_hex_string(adaptor_secret)
         util = get_util()
         with util.create_handle() as handle:
             signature = util.call_func(
                 'CfdAdaptEcdsaAdaptor', handle.get_handle(), _sig, _sk)
-        return signature
+        return ByteData(signature)
 
     ##
     # @brief extract secret.
@@ -598,7 +632,7 @@ class EcdsaAdaptor:
     # @param[in] adaptor                adaptor bytes
     # @return adaptor secret key
     @classmethod
-    def extract_secret(cls, adaptor_signature, signature, adaptor):
+    def extract_secret(cls, adaptor_signature, signature, adaptor) -> 'Privkey':
         _adaptor_signature = to_hex_string(adaptor_signature)
         _signature = to_hex_string(signature)
         _adaptor = to_hex_string(adaptor)
@@ -621,7 +655,7 @@ class EcdsaAdaptor:
     # @retval False     Verify fail.
     @classmethod
     def verify(cls, adaptor_signature, proof, adaptor, message, pubkey,
-               is_message_hashed=True):
+               is_message_hashed: bool = True) -> bool:
         msg = message
         if (not is_message_hashed) and isinstance(message, str):
             m = hashlib.sha256()
@@ -653,6 +687,7 @@ class SchnorrPubkey:
     ##
     # @var hex
     # hex data
+    hex: str
 
     ##
     # @brief create SchnorrPubkey from privkey.
@@ -660,7 +695,7 @@ class SchnorrPubkey:
     # @retval [0] SchnorrPubkey
     # @retval [1] parity flag
     @classmethod
-    def from_privkey(cls, privkey):
+    def from_privkey(cls, privkey) -> 'SchnorrPubkey':
         if isinstance(privkey, Privkey):
             _privkey = privkey.hex
         elif isinstance(privkey, str) and (len(privkey) != 64):
@@ -681,7 +716,7 @@ class SchnorrPubkey:
     # @retval [0] SchnorrPubkey
     # @retval [1] parity flag
     @classmethod
-    def from_pubkey(cls, pubkey):
+    def from_pubkey(cls, pubkey) -> 'SchnorrPubkey':
         _pubkey = to_hex_string(pubkey)
         util = get_util()
         with util.create_handle() as handle:
@@ -698,7 +733,7 @@ class SchnorrPubkey:
     # @retval [1] tweaked parity flag
     # @retval [2] tweaked Privkey
     @classmethod
-    def add_tweak_from_privkey(cls, privkey, tweak):
+    def add_tweak_from_privkey(cls, privkey, tweak) -> 'SchnorrPubkey':
         if isinstance(privkey, Privkey):
             _privkey = privkey.hex
         elif isinstance(privkey, str) and (len(privkey) != 64):
@@ -727,7 +762,7 @@ class SchnorrPubkey:
     ##
     # @brief get string.
     # @return pubkey hex.
-    def __str__(self):
+    def __str__(self) -> str:
         return self.hex
 
     ##
@@ -735,7 +770,7 @@ class SchnorrPubkey:
     # @param[in] tweak      tweak data
     # @retval [0] tweaked SchnorrPubkey
     # @retval [1] tweaked parity flag
-    def add_tweak(self, tweak):
+    def add_tweak(self, tweak) -> 'SchnorrPubkey':
         _tweak = to_hex_string(tweak)
         util = get_util()
         with util.create_handle() as handle:
@@ -751,7 +786,7 @@ class SchnorrPubkey:
     # @param[in] tweak              tweak data
     # @retval True      tweaked pubkey from base pubkey.
     # @retval False     other.
-    def is_tweaked(self, tweaked_parity, base_pubkey, tweak):
+    def is_tweaked(self, tweaked_parity, base_pubkey, tweak) -> bool:
         _base_pubkey = to_hex_string(base_pubkey)
         _tweak = to_hex_string(tweak)
         try:
@@ -775,12 +810,15 @@ class SchnorrSignature:
     ##
     # @var signature
     # signature data
+    signature: str
     ##
     # @var nonce
     # nonce data
+    nonce: 'SchnorrPubkey'
     ##
     # @var key
     # key data
+    key: 'Privkey'
 
     ##
     # @brief constructor.
@@ -789,16 +827,16 @@ class SchnorrSignature:
         self.signature = to_hex_string(signature)
         util = get_util()
         with util.create_handle() as handle:
-            self.nonce, self.key = util.call_func(
+            _nonce, self.key = util.call_func(
                 'CfdSplitSchnorrSignature', handle.get_handle(),
                 self.signature)
-            self.nonce = SchnorrPubkey(self.nonce)
+            self.nonce = SchnorrPubkey(_nonce)
             self.key = Privkey(hex=self.key)
 
     ##
     # @brief get string.
     # @return signature hex.
-    def __str__(self):
+    def __str__(self) -> str:
         return self.signature
 
 
@@ -816,7 +854,7 @@ class SchnorrUtil:
     # @return signature
     @classmethod
     def sign(cls, message, secret_key, aux_rand='', nonce='',
-             is_message_hashed=True):
+             is_message_hashed: bool = True) -> 'SchnorrSignature':
         msg = message
         if (not is_message_hashed) and isinstance(message, str):
             m = hashlib.sha256()
@@ -846,7 +884,7 @@ class SchnorrUtil:
     # @return signature
     @classmethod
     def compute_sig_point(cls, message, nonce, pubkey,
-                          is_message_hashed=True):
+                          is_message_hashed: bool = True) -> 'Pubkey':
         msg = message
         if (not is_message_hashed) and isinstance(message, str):
             m = hashlib.sha256()
@@ -872,7 +910,7 @@ class SchnorrUtil:
     # @retval False     Verify fail.
     @classmethod
     def verify(cls, signature, message, pubkey,
-               is_message_hashed=True):
+               is_message_hashed: bool = True) -> bool:
         msg = message
         if (not is_message_hashed) and isinstance(message, str):
             m = hashlib.sha256()

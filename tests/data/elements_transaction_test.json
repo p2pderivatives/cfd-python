@@ -8349,7 +8349,8 @@
                 "error": {
                     "code": 1,
                     "type": "illegal_argument",
-                    "message": "Value hex string length Invalid."
+                    "message": "Value hex string length Invalid.",
+                    "python": "Error: Invalid blind factor."
                 }
             },
             {
@@ -8746,7 +8747,8 @@
                 "error": {
                     "code": 1,
                     "type": "illegal_argument",
-                    "message": "hex to byte convert error."
+                    "message": "hex to byte convert error.",
+                    "python": "Error: Invalid hex value."
                 }
             },
             {

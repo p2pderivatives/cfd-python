@@ -3,11 +3,14 @@
 # @file transaction.py
 # @brief transaction function implements file.
 # @note Copyright 2020 CryptoGarage
+from typing import AnyStr, List, Optional, Tuple, Union
+import typing
 from .util import get_util, JobHandle, CfdError, to_hex_string,\
     CfdErrorCode, ReverseByteData, ByteData
 from .address import Address, AddressUtil
 from .key import Network, SigHashType, SignParameter, Privkey
-from .script import HashType
+from .script import HashType, Script
+from .descriptor import Descriptor
 from enum import Enum
 import ctypes
 import copy
@@ -34,15 +37,17 @@ class OutPoint:
     ##
     # @var txid
     # txid
+    txid: 'Txid'
     ##
     # @var vout
     # vout
+    vout: int
 
     ##
     # @brief constructor.
     # @param[in] txid   txid
     # @param[in] vout   vout
-    def __init__(self, txid, vout):
+    def __init__(self, txid, vout: int):
         self.txid = Txid(txid)
         self.vout = vout
         if isinstance(vout, int) is False:
@@ -53,14 +58,14 @@ class OutPoint:
     ##
     # @brief get string.
     # @return txid.
-    def __str__(self):
+    def __str__(self) -> str:
         return '{},{}'.format(str(self.txid), self.vout)
 
     ##
     # @brief equal method.
     # @param[in] other      other object.
     # @return true or false.
-    def __eq__(self, other):
+    def __eq__(self, other: 'OutPoint') -> bool:
         if not isinstance(other, OutPoint):
             return NotImplemented
         return (self.txid.hex == other.txid.hex) and (
@@ -70,7 +75,7 @@ class OutPoint:
     # @brief diff method.
     # @param[in] other      other object.
     # @return true or false.
-    def __lt__(self, other):
+    def __lt__(self, other: 'OutPoint') -> bool:
         if not isinstance(other, OutPoint):
             return NotImplemented
         return (self.txid.hex, self.vout) < (other.txid.hex, other.vout)
@@ -79,28 +84,28 @@ class OutPoint:
     # @brief equal method.
     # @param[in] other      other object.
     # @return true or false.
-    def __ne__(self, other):
+    def __ne__(self, other: 'OutPoint') -> bool:
         return not self.__eq__(other)
 
     ##
     # @brief diff method.
     # @param[in] other      other object.
     # @return true or false.
-    def __le__(self, other):
+    def __le__(self, other: 'OutPoint') -> bool:
         return self.__lt__(other) or self.__eq__(other)
 
     ##
     # @brief diff method.
     # @param[in] other      other object.
     # @return true or false.
-    def __gt__(self, other):
+    def __gt__(self, other: 'OutPoint') -> bool:
         return not self.__le__(other)
 
     ##
     # @brief diff method.
     # @param[in] other      other object.
     # @return true or false.
-    def __ge__(self, other):
+    def __ge__(self, other: 'OutPoint') -> bool:
         return not self.__lt__(other)
 
 
@@ -111,15 +116,19 @@ class UtxoData:
     ##
     # @var outpoint
     # outpoint
+    outpoint: 'OutPoint'
     ##
     # @var amount
     # amount
+    amount: int
     ##
     # @var descriptor
     # descriptor
+    descriptor: Union[str, 'Descriptor']
     ##
     # @var scriptsig_template
     # scriptsig template
+    scriptsig_template: Union['Script', 'ByteData', AnyStr]
 
     ##
     # @brief constructor.
@@ -130,8 +139,10 @@ class UtxoData:
     # @param[in] descriptor             descriptor
     # @param[in] scriptsig_template     scriptsig template
     def __init__(
-            self, outpoint=None, txid='', vout=0,
-            amount=0, descriptor='', scriptsig_template=''):
+            self, outpoint: Optional['OutPoint'] = None,
+            txid='', vout: int = 0,
+            amount: int = 0, descriptor: Union[str, 'Descriptor'] = '',
+            scriptsig_template: Union['Script', 'ByteData', AnyStr] = ''):
         if isinstance(outpoint, OutPoint):
             self.outpoint = outpoint
         else:
@@ -200,15 +211,19 @@ class TxIn:
     ##
     # @var outpoint
     # outpoint
+    outpoint: 'OutPoint'
     ##
     # @var sequence
     # sequence
+    sequence: int
     ##
     # @var script_sig
     # script sig
+    script_sig: 'Script'
     ##
     # @var witness_stack
     # witness stack
+    witness_stack: List[Union['Script', 'ByteData', AnyStr]]
 
     ##
     # sequence disable.
@@ -223,7 +238,7 @@ class TxIn:
     # @param[in] sequence   sequence
     # @return sequence number.
     @classmethod
-    def get_sequence_number(cls, locktime=0, sequence=SEQUENCE_DISABLE):
+    def get_sequence_number(cls, locktime: int = 0, sequence: int = SEQUENCE_DISABLE):
         if sequence not in [-1, TxIn.SEQUENCE_DISABLE]:
             return sequence
         elif locktime == 0:
@@ -237,20 +252,20 @@ class TxIn:
     # @param[in] txid       txid
     # @param[in] vout       vout
     # @param[in] sequence   sequence
-    def __init__(self, outpoint=None, txid='', vout=0,
-                 sequence=SEQUENCE_DISABLE):
+    def __init__(self, outpoint: Optional['OutPoint'] = None,
+                 txid='', vout: int = 0, sequence: int = SEQUENCE_DISABLE):
         if isinstance(outpoint, OutPoint):
             self.outpoint = outpoint
         else:
             self.outpoint = OutPoint(txid=txid, vout=vout)
         self.sequence = sequence
-        self.script_sig = ''
+        self.script_sig = Script('')
         self.witness_stack = []
 
     ##
     # @brief get string.
     # @return hex.
-    def __str__(self):
+    def __str__(self) -> str:
         return str(self.outpoint)
 
 
@@ -261,32 +276,36 @@ class TxOut:
     ##
     # @var amount
     # amount
+    amount: int
     ##
     # @var address
     # address
+    address: Union['Address', str]
     ##
     # @var locking_script
     # locking script
+    locking_script: 'Script'
 
     ##
     # @brief constructor.
     # @param[in] amount             amount
     # @param[in] address            address
     # @param[in] locking_script     locking script
-    def __init__(self, amount, address='', locking_script=''):
+    def __init__(self, amount: int, address='', locking_script=''):
         self.amount = amount
         if address != '':
-            self.address = address
-            self.locking_script = ''
+            self.address = address if isinstance(
+                address, Address) else str(address)
+            self.locking_script = Script('')
         else:
-            self.locking_script = locking_script
+            self.locking_script = Script(locking_script)
             self.address = ''
 
     ##
     # @brief constructor.
     # @param[in] network    network
     # @return address.
-    def get_address(self, network=Network.MAINNET):
+    def get_address(self, network=Network.MAINNET) -> 'Address':
         if isinstance(self.address, Address):
             return self.address
         if self.address != '':
@@ -296,7 +315,7 @@ class TxOut:
     ##
     # @brief get string.
     # @return address or script.
-    def __str__(self):
+    def __str__(self) -> str:
         if (self.address != ''):
             return str(self.address)
         else:
@@ -310,12 +329,15 @@ class _TransactionBase:
     ##
     # @var hex
     # transaction hex string
+    hex: str
     ##
     # @var network
     # transaction network type
+    network: int
     ##
     # @var enable_cache
     # use transaction cache
+    enable_cache: bool
 
     ##
     # @brief constructor.
@@ -325,12 +347,12 @@ class _TransactionBase:
     def __init__(self, hex, network, enable_cache=True):
         self.hex = to_hex_string(hex)
         self.enable_cache = enable_cache
-        self.network = network
+        self.network = Network.get(network).value
 
     ##
     # @brief get string.
     # @return tx hex.
-    def __str__(self):
+    def __str__(self) -> str:
         return self.hex
 
     ##
@@ -380,7 +402,8 @@ class _TransactionBase:
     # @param[in] txid       txid
     # @param[in] vout       vout
     # @return index
-    def get_txin_index(self, outpoint=None, txid='', vout=0):
+    def get_txin_index(self, outpoint: Optional['OutPoint'] = None,
+                       txid='', vout=0) -> int:
         txin = TxIn(outpoint=outpoint, txid=txid, vout=vout)
         util = get_util()
         with util.create_handle() as handle:
@@ -395,7 +418,7 @@ class _TransactionBase:
     # @param[in] address            address
     # @param[in] locking_script     locking_script
     # @return index
-    def get_txout_index(self, address='', locking_script=''):
+    def get_txout_index(self, address='', locking_script='') -> int:
         # get first target only.
         _script = to_hex_string(locking_script)
         util = get_util()
@@ -414,8 +437,8 @@ class _TransactionBase:
     # @param[in] sighashtype    sighash type
     # @return void
     def add_pubkey_hash_sign(
-            self, outpoint, hash_type, pubkey, signature,
-            sighashtype=SigHashType.ALL):
+            self, outpoint: 'OutPoint', hash_type, pubkey, signature,
+            sighashtype=SigHashType.ALL) -> None:
         _hash_type = HashType.get(hash_type)
         _pubkey = to_hex_string(pubkey)
         _signature = to_hex_string(signature)
@@ -442,8 +465,8 @@ class _TransactionBase:
     # @param[in] signature_list     signature list
     # @return void
     def add_multisig_sign(
-            self, outpoint, hash_type, redeem_script,
-            signature_list):
+            self, outpoint: 'OutPoint', hash_type, redeem_script,
+            signature_list) -> None:
         if (isinstance(signature_list, list) is False) or (
                 len(signature_list) == 0):
             raise CfdError(
@@ -496,8 +519,8 @@ class _TransactionBase:
     # @param[in] signature_list     signature list
     # @return void
     def add_script_hash_sign(
-            self, outpoint, hash_type, redeem_script,
-            signature_list):
+            self, outpoint: 'OutPoint', hash_type, redeem_script,
+            signature_list) -> None:
         if (isinstance(signature_list, list) is False) or (
                 len(signature_list) == 0):
             raise CfdError(
@@ -542,9 +565,9 @@ class _TransactionBase:
     # @param[in] sighashtype        sighash type
     # @return void
     def add_sign(
-            self, outpoint, hash_type, sign_data,
-            clear_stack=False, use_der_encode=False,
-            sighashtype=SigHashType.ALL):
+            self, outpoint: 'OutPoint', hash_type, sign_data,
+            clear_stack: bool = False, use_der_encode: bool = False,
+            sighashtype=SigHashType.ALL) -> None:
         _hash_type = HashType.get(hash_type)
         _sign_data = sign_data
         if not isinstance(sign_data, str):
@@ -568,33 +591,43 @@ class Transaction(_TransactionBase):
     ##
     # @var hex
     # transaction hex string
+    hex: str
     ##
     # @var txin_list
     # transaction input list
+    txin_list: List['TxIn']
     ##
     # @var txout_list
     # transaction output list
+    txout_list: List['TxOut']
     ##
     # @var txid
     # txid
+    txid: 'Txid'
     ##
     # @var wtxid
     # wtxid
+    wtxid: 'Txid'
     ##
     # @var size
     # transaction size
+    size: int
     ##
     # @var vsize
     # transaction vsize
+    vsize: int
     ##
     # @var weight
     # transaction size weight
+    weight: int
     ##
     # @var version
     # version
+    version: int
     ##
     # @var locktime
     # locktime
+    locktime: int
 
     ##
     # bitcoin network value.
@@ -609,7 +642,7 @@ class Transaction(_TransactionBase):
     # @param[in] network    network
     # @return json string
     @classmethod
-    def parse_to_json(cls, hex, network=Network.MAINNET):
+    def parse_to_json(cls, hex: str, network=Network.MAINNET) -> str:
         _network = Network.get(network)
         network_str = 'mainnet'
         if _network == Network.TESTNET:
@@ -632,7 +665,8 @@ class Transaction(_TransactionBase):
     # @param[in] enable_cache   enable tx cache
     # @return transaction object
     @classmethod
-    def create(cls, version, locktime, txins, txouts, enable_cache=True):
+    def create(cls, version: int, locktime: int, txins: List['TxIn'],
+               txouts: List['TxOut'], enable_cache: bool = True) -> 'Transaction':
         util = get_util()
         with util.create_handle() as handle:
             _tx_handle = util.call_func(
@@ -663,14 +697,14 @@ class Transaction(_TransactionBase):
     # @param[in] enable_cache   enable tx cache
     # @return transaction object
     @classmethod
-    def from_hex(cls, hex, enable_cache=True):
+    def from_hex(cls, hex, enable_cache: bool = True) -> 'Transaction':
         return Transaction(hex, enable_cache)
 
     ##
     # @brief constructor.
     # @param[in] hex            tx hex
     # @param[in] enable_cache   enable tx cache
-    def __init__(self, hex, enable_cache=True):
+    def __init__(self, hex, enable_cache: bool = True):
         super().__init__(hex, self.NETWORK, enable_cache)
         self.txin_list = []
         self.txout_list = []
@@ -725,7 +759,7 @@ class Transaction(_TransactionBase):
     # @brief get transaction all data.
     # @retval [0]   txin list
     # @retval [1]   txout list
-    def get_tx_all(self):
+    def get_tx_all(self) -> typing.Tuple[List['TxIn'], List['TxOut']]:
         def get_txin_list(handle, tx_handle):
             txin_list = []
             _count = util.call_func(
@@ -773,8 +807,8 @@ class Transaction(_TransactionBase):
     # @param[in] txid       txid
     # @param[in] vout       vout
     # @return void
-    def add_txin(self, outpoint=None, sequence=-1,
-                 txid='', vout=0):
+    def add_txin(self, outpoint: Optional['OutPoint'] = None,
+                 sequence: int = -1, txid='', vout: int = 0) -> None:
         sec = TxIn.get_sequence_number(self.locktime, sequence)
         txin = TxIn(
             outpoint=outpoint, sequence=sec, txid=txid, vout=vout)
@@ -786,7 +820,7 @@ class Transaction(_TransactionBase):
     # @param[in] address            address
     # @param[in] locking_script     locking script
     # @return void
-    def add_txout(self, amount, address='', locking_script=''):
+    def add_txout(self, amount: int, address='', locking_script='') -> None:
         txout = TxOut(amount, address, locking_script)
         self.add([], [txout])
 
@@ -795,7 +829,7 @@ class Transaction(_TransactionBase):
     # @param[in] txins          txin list
     # @param[in] txouts         txout list
     # @return void
-    def add(self, txins, txouts):
+    def add(self, txins: List['TxIn'], txouts: List['TxOut']) -> None:
         util = get_util()
         with util.create_handle() as handle:
             _tx_handle = util.call_func(
@@ -833,7 +867,7 @@ class Transaction(_TransactionBase):
     # @param[in] index      index
     # @param[in] amount     amount
     # @return void
-    def update_txout_amount(self, index, amount):
+    def update_txout_amount(self, index: int, amount: int):
         util = get_util()
         with util.create_handle() as handle:
             self.hex = util.call_func(
@@ -853,12 +887,12 @@ class Transaction(_TransactionBase):
     # @return sighash
     def get_sighash(
             self,
-            outpoint,
+            outpoint: 'OutPoint',
             hash_type,
-            amount=0,
+            amount: int = 0,
             pubkey='',
             redeem_script='',
-            sighashtype=SigHashType.ALL):
+            sighashtype=SigHashType.ALL) -> 'ByteData':
         _hash_type = HashType.get(hash_type)
         _pubkey = to_hex_string(pubkey)
         _script = to_hex_string(redeem_script)
@@ -884,12 +918,12 @@ class Transaction(_TransactionBase):
     # @return void
     def sign_with_privkey(
             self,
-            outpoint,
+            outpoint: 'OutPoint',
             hash_type,
             privkey,
-            amount=0,
+            amount: int = 0,
             sighashtype=SigHashType.ALL,
-            grind_r=True):
+            grind_r: bool = True) -> None:
         _hash_type = HashType.get(hash_type)
         if isinstance(privkey, Privkey):
             _privkey = privkey
@@ -916,7 +950,8 @@ class Transaction(_TransactionBase):
     # @param[in] hash_type      hash type
     # @param[in] amount         amount
     # @return void
-    def verify_sign(self, outpoint, address, hash_type, amount):
+    def verify_sign(self, outpoint: 'OutPoint', address, hash_type,
+                    amount: int) -> None:
         _hash_type = HashType.get(hash_type)
         util = get_util()
         with util.create_handle() as handle:
@@ -938,8 +973,8 @@ class Transaction(_TransactionBase):
     # @retval True      signature valid.
     # @retval False     signature invalid.
     def verify_signature(
-            self, outpoint, signature, hash_type, pubkey, amount=0,
-            redeem_script='', sighashtype=SigHashType.ALL):
+            self, outpoint: 'OutPoint', signature, hash_type, pubkey,
+            amount: int = 0, redeem_script='', sighashtype=SigHashType.ALL) -> bool:
         _signature = to_hex_string(signature)
         _pubkey = to_hex_string(pubkey)
         _script = to_hex_string(redeem_script)
@@ -974,10 +1009,11 @@ class Transaction(_TransactionBase):
     # @retval [1]      utxo fee.
     # @retval [2]      total tx fee.
     @classmethod
-    def select_coins(
-            cls, utxo_list, tx_fee_amount, target_amount,
-            effective_fee_rate=20.0, long_term_fee_rate=20.0,
-            dust_fee_rate=3.0, knapsack_min_change=-1):
+    def select_coins(cls, utxo_list: List['UtxoData'], tx_fee_amount: int,
+                     target_amount: int, effective_fee_rate: float = 20.0,
+                     long_term_fee_rate: float = 20.0, dust_fee_rate: float = 3.0,
+                     knapsack_min_change: int = -1,
+                     ) -> Tuple[List['UtxoData'], int, int]:
         if (isinstance(utxo_list, list) is False) or (
                 len(utxo_list) == 0):
             raise CfdError(
@@ -1029,7 +1065,8 @@ class Transaction(_TransactionBase):
     # @retval [0]      total tx fee. (txout fee + utxo fee)
     # @retval [1]      txout fee.
     # @retval [2]      utxo fee.
-    def estimate_fee(self, utxo_list, fee_rate=20.0):
+    def estimate_fee(self, utxo_list: List['UtxoData'], fee_rate: float = 20.0,
+                     ) -> Tuple[int, int, int]:
         if (isinstance(utxo_list, list) is False) or (
                 len(utxo_list) == 0):
             raise CfdError(
@@ -1073,10 +1110,11 @@ class Transaction(_TransactionBase):
     # @retval [0]      total tx fee.
     # @retval [1]      used reserved address. (None or reserved_address)
     def fund_raw_transaction(
-            self, txin_utxo_list, utxo_list, reserved_address,
-            target_amount=0, effective_fee_rate=20.0,
-            long_term_fee_rate=20.0, dust_fee_rate=-1.0,
-            knapsack_min_change=-1):
+            self, txin_utxo_list: List['UtxoData'], utxo_list: List['UtxoData'],
+            reserved_address, target_amount: int = 0,
+            effective_fee_rate: float = 20.0,
+            long_term_fee_rate: float = 20.0, dust_fee_rate: float = -1.0,
+            knapsack_min_change: int = -1) -> Tuple[int, str]:
         util = get_util()
 
         def set_opt(handle, tx_handle, key, i_val=0, f_val=0, b_val=False):
@@ -1142,7 +1180,7 @@ class Transaction(_TransactionBase):
                         handle.get_handle(), tx_handle.get_handle(), 0)
                 used_addr = None
                 if _used_addr == reserved_address:
-                    used_addr = reserved_address
+                    used_addr = str(reserved_address)
 
                 self.hex = _new_hex
                 self._update_tx_all()

@@ -9,6 +9,7 @@ from cfd.util import CfdError
 
 def test_address_func(obj, name, case, req, exp, error):
     try:
+        resp = None
         _network = req.get('network', 'mainnet')
         if req.get('isElements', False) and (
                 _network.lower() == Network.REGTEST.as_str()):

@@ -3,7 +3,7 @@
 # @file util.py
 # @brief cfd utility file.
 # @note Copyright 2020 CryptoGarage
-from ctypes import c_int, c_void_p, c_char_p, c_int32, c_int64,\
+from ctypes import Union, c_int, c_void_p, c_char_p, c_int32, c_int64,\
     c_uint32, c_uint64, c_bool, c_double, c_ubyte, \
     CDLL, byref, POINTER, ArgumentError
 from os.path import isfile, abspath
@@ -11,6 +11,7 @@ from enum import Enum
 import platform
 import os
 import re
+from typing import List
 
 ################
 # Public class #
@@ -63,23 +64,29 @@ class CfdError(Exception):
     ##
     # @var error_code
     # error code
+    error_code: int
     ##
     # @var message
     # error message
+    message: str
 
     ##
     # @brief constructor.
     # @param[in] error_code     error code
     # @param[in] message        error message
-    def __init__(self, error_code=CfdErrorCode.UNKNOWN.value, message=''):
+    def __init__(
+        self,
+        error_code: int = CfdErrorCode.UNKNOWN.value,
+        message: str = '',
+    ) -> None:
         self.error_code = error_code
         self.message = message
 
     ##
     # @brief get error information.
     # @return error information.
-    def __str__(self):
-        return 'code={}, msg={}'.format(self.error_code, self.message)
+    def __str__(self) -> str:
+        return f'code={self.error_code}, msg={self.message}'
 
 
 ##
@@ -89,11 +96,12 @@ class ByteData:
     ##
     # @var hex
     # hex string
+    hex: str
 
     ##
     # @brief constructor.
     # @param[in] data     byte data
-    def __init__(self, data):
+    def __init__(self, data) -> None:
         if isinstance(data, bytes) or isinstance(data, bytearray):
             self.hex = data.hex()
         elif isinstance(data, list):
@@ -105,26 +113,26 @@ class ByteData:
     ##
     # @brief get string.
     # @return hex.
-    def __str__(self):
+    def __str__(self) -> str:
         return self.hex
 
     ##
     # @brief get bytes data.
     # @return bytes data.
-    def as_bytes(self):
+    def as_bytes(self) -> bytes:
         return bytes.fromhex(self.hex)
 
     ##
     # @brief get array data.
     # @return array data.
-    def as_array(self):
-        _hex_list = re.split('(..)', self.hex)[1::2]
+    def as_array(self) -> List[int]:
+        _hex_list = re.split('(..)', self.hex)[1:: 2]
         return [int('0x' + s, 16) for s in _hex_list]
 
     ##
     # @brief get serialized data.
     # @return serialize hex.
-    def serialize(self):
+    def serialize(self) -> 'ByteData':
         util = get_util()
         with util.create_handle() as handle:
             _serialized = util.call_func(
@@ -139,11 +147,12 @@ class ReverseByteData:
     ##
     # @var hex
     # hex string
+    hex: str
 
     ##
     # @brief constructor.
     # @param[in] data     byte data
-    def __init__(self, data):
+    def __init__(self, data) -> None:
         if isinstance(data, bytes) or isinstance(data, bytearray):
             _data = data.hex()
             _list = re.split('(..)', _data)[1::2]
@@ -165,13 +174,13 @@ class ReverseByteData:
     ##
     # @brief get string.
     # @return hex.
-    def __str__(self):
+    def __str__(self) -> str:
         return self.hex
 
     ##
     # @brief get bytes data.
     # @return bytes data.
-    def as_bytes(self):
+    def as_bytes(self) -> bytes:
         _hex_list = re.split('(..)', self.hex)[1::2]
         _hex_list = _hex_list[::-1]
         return bytes.fromhex(''.join(_hex_list))
@@ -179,7 +188,7 @@ class ReverseByteData:
     ##
     # @brief get array data.
     # @return array data.
-    def as_array(self):
+    def as_array(self) -> List[int]:
         _hex_list = re.split('(..)', self.hex)[1::2]
         _hex_list = _hex_list[::-1]
         return [int('0x' + s, 16) for s in _hex_list]
@@ -189,15 +198,15 @@ class ReverseByteData:
 # @brief get hex string.
 # @param[in] value      data
 # @return hex string.
-def to_hex_string(value):
+def to_hex_string(value) -> str:
     if isinstance(value, bytes):
         return value.hex()
     elif isinstance(value, bytearray):
         return value.hex()
     elif isinstance(value, list):
-        return "".join("%02x" % b for b in value)
+        return "".join("%02x" % int(b) for b in value)
     elif str(type(value)) == "<class 'cfd.key.Privkey'>":
-        return value.hex
+        return str(value.hex)
     else:
         _hex = str(value)
         if _hex != '':
@@ -352,7 +361,8 @@ class JobHandle:
     # @param[in] handle         handle
     # @param[in] job_handle     job handle
     # @param[in] close_function_name    close func name.
-    def __init__(self, handle, job_handle, close_function_name):
+    def __init__(self, handle: 'CfdHandle',
+                 job_handle, close_function_name):
         self._handle = handle
         self._job_handle = job_handle
         self._close_func = close_function_name
@@ -619,7 +629,6 @@ class CfdUtil:
 
     ##
     # @brief constructor.
-    # @return utility instance.
     def __init__(self):
         self._func_map = {}
 
@@ -725,6 +734,7 @@ class CfdUtil:
             return fn(*args)
 
         def string_fn_wrapper(fn, *args):
+            new_args = None
             try:
                 # Return output string parameters directly without leaking
                 p = c_char_p()
@@ -872,7 +882,7 @@ class CfdUtil:
     # @brief create cfd handle.
     # @return cfd handle
     # @throw CfdError   occurred error.
-    def create_handle(self):
+    def create_handle(self) -> 'CfdHandle':
         ret, handle = self._func_map['CfdCreateSimpleHandle']()
         if ret != 0:
             raise CfdError(
@@ -884,14 +894,14 @@ class CfdUtil:
     # @brief free cfd handle.
     # @param[in] handle     cfd handle
     # @return result
-    def free_handle(self, handle):
+    def free_handle(self, handle) -> c_int:
         return self._func_map['CfdFreeHandle'](handle)
 
 
 ##
 # @brief get utility object.
 # @return utility object.
-def get_util():
+def get_util() -> 'CfdUtil':
     return CfdUtil.get_instance()
 
 

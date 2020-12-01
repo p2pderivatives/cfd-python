@@ -3,11 +3,14 @@
 # @file confidential_transaction.py
 # @brief elements confidential transaction function implements file.
 # @note Copyright 2020 CryptoGarage
+from typing import AnyStr, Dict, List, Optional, Union
+import typing
 from .util import ReverseByteData, CfdError, JobHandle,\
     CfdErrorCode, to_hex_string, get_util, ByteData
 from .address import Address, AddressUtil
+from .descriptor import Descriptor
 from .key import Network, SigHashType, Privkey, Pubkey
-from .script import HashType
+from .script import HashType, Script
 from .transaction import UtxoData, OutPoint, Txid, TxIn, TxOut, _FundTxOpt,\
     _TransactionBase
 from .confidential_address import ConfidentialAddress
@@ -29,13 +32,36 @@ EMPTY_BLINDER = [
 # @brief blind factor (blinder) class.
 class BlindFactor(ReverseByteData):
     ##
+    # @var hex
+    # hex string
+    hex: str
+
+    ##
+    # @brief constructor.
+    # @param[in] data   blind factor
+    # @return BlindFactor
+    @classmethod
+    def create(cls, data=''):
+        if isinstance(data, str) and (len(data) == 0):
+            return BlindFactor(EMPTY_BLINDER)
+        else:
+            return BlindFactor(data)
+
+    ##
     # @brief constructor.
     # @param[in] data   blind factor
     def __init__(self, data):
         super().__init__(data)
         if len(self.hex) != 64:
             raise CfdError(
-                error_code=1, message='Error: Invalid blind factor.')
+                error_code=1, message=f'Error: Invalid blind factor.')
+
+    ##
+    # @brief check empty.
+    # @retval True   empty
+    # @retval False  not empty
+    def is_empty(self):
+        return True if self.hex == '0'*64 else False
 
 
 ##
@@ -45,6 +71,7 @@ class ConfidentialNonce:
     ##
     # @var hex
     # hex
+    hex: str
 
     ##
     # @brief constructor.
@@ -58,14 +85,14 @@ class ConfidentialNonce:
     ##
     # @brief get string.
     # @return hex.
-    def __str__(self):
+    def __str__(self) -> str:
         return self.hex
 
     ##
     # @brief check empty.
     # @retval True      empty.
     # @retval False     value exist.
-    def is_empty(self):
+    def is_empty(self) -> bool:
         return (len(self.hex) == 0)
 
 
@@ -76,6 +103,7 @@ class ConfidentialAsset:
     ##
     # @var hex
     # hex
+    hex: str
 
     ##
     # @brief constructor.
@@ -94,14 +122,14 @@ class ConfidentialAsset:
     ##
     # @brief get string.
     # @return hex.
-    def __str__(self):
+    def __str__(self) -> str:
         return self.hex
 
     ##
     # @brief get blind state.
     # @retval True      blinded.
     # @retval False     unblind.
-    def has_blind(self):
+    def has_blind(self) -> bool:
         if (len(self.hex) == 66) and (self.hex[0] == '0') and (
                 self.hex[1].lower() in {'a', 'b'}):
             return True
@@ -111,7 +139,7 @@ class ConfidentialAsset:
     # @brief get commitment. (can use unblind only)
     # @param[in] asset_blind_factor     asset blind factor
     # @return asset commitment
-    def get_commitment(self, asset_blind_factor):
+    def get_commitment(self, asset_blind_factor) -> 'ConfidentialAsset':
         if self.has_blind():
             raise CfdError(
                 error_code=1, message='Error: Blind asset.')
@@ -130,9 +158,11 @@ class ConfidentialValue:
     ##
     # @var hex
     # hex
+    hex: str
     ##
     # @var amount
     # amount
+    amount: int
 
     ##
     # @brief create instance.
@@ -140,7 +170,7 @@ class ConfidentialValue:
     # @param[in] amount     amount
     # @return ConfidentialValue
     @classmethod
-    def create(cls, value, amount):
+    def create(cls, value, amount: int) -> 'ConfidentialValue':
         _value_hex = to_hex_string(value)
         if isinstance(value, ConfidentialValue):
             return value
@@ -153,7 +183,8 @@ class ConfidentialValue:
     # @brief get hex string from amount.
     # @param[in] amount     amount
     # @return hex string
-    def _byte_from_amount(cls, amount):
+    @classmethod
+    def _byte_from_amount(cls, amount: int) -> str:
         util = get_util()
         with util.create_handle() as handle:
             value_hex = util.call_func(
@@ -181,14 +212,14 @@ class ConfidentialValue:
     ##
     # @brief get string.
     # @return hex or amount.
-    def __str__(self):
+    def __str__(self) -> str:
         return str(self.amount) if self.amount != 0 else self.hex
 
     ##
     # @brief get blind state.
     # @retval True      blinded.
     # @retval False     unblind.
-    def has_blind(self):
+    def has_blind(self) -> bool:
         return (len(self.hex) == 66)
 
     ##
@@ -196,7 +227,8 @@ class ConfidentialValue:
     # @param[in] asset_commitment   asset commitment
     # @param[in] blind_factor       amount blind factor
     # @return amount commitment
-    def get_commitment(self, asset_commitment, blind_factor):
+    def get_commitment(self, asset_commitment,
+                       blind_factor) -> 'ConfidentialValue':
         if self.has_blind():
             raise CfdError(
                 error_code=1, message='Error: Blind value.')
@@ -220,36 +252,47 @@ class ElementsUtxoData(UtxoData):
     ##
     # @var outpoint
     # outpoint (for UtxoData class)
+    outpoint: 'OutPoint'
     ##
     # @var amount
     # amount (for UtxoData class)
+    amount: int
     ##
     # @var value
     # value
+    value: 'ConfidentialValue'
     ##
     # @var asset
     # asset
+    asset: 'ConfidentialAsset'
     ##
     # @var is_issuance
     # is issuance
+    is_issuance: bool
     ##
     # @var is_blind_issuance
     # is blinded issuance
+    is_blind_issuance: bool
     ##
     # @var is_pegin
     # is pegin
+    is_pegin: bool
     ##
     # @var pegin_btc_tx_size
     # pegin btc transaction size
+    pegin_btc_tx_size: int
     ##
     # @var fedpeg_script
     # fedpeg script
+    fedpeg_script: 'Script'
     ##
     # @var asset_blinder
     # asset blind factor
+    asset_blinder: 'BlindFactor'
     ##
     # @var amount_blinder
     # amount blind factor
+    amount_blinder: 'BlindFactor'
 
     ##
     # @brief constructor.
@@ -269,24 +312,28 @@ class ElementsUtxoData(UtxoData):
     # @param[in] asset_blinder          asset blind factor
     # @param[in] amount_blinder         amount blind factor
     def __init__(
-            self, outpoint=None, txid='', vout=0,
-            amount=0, descriptor='', scriptsig_template='',
-            value='', asset='', is_issuance=False, is_blind_issuance=False,
-            is_pegin=False, pegin_btc_tx_size=0, fedpeg_script='',
+            self, outpoint: Optional['OutPoint'] = None,
+            txid='', vout: int = 0, amount: int = 0,
+            descriptor: Union[str, 'Descriptor'] = '',
+            scriptsig_template='',
+            value='', asset='',
+            is_issuance: bool = False, is_blind_issuance: bool = False,
+            is_pegin: bool = False,
+            pegin_btc_tx_size: int = 0, fedpeg_script='',
             asset_blinder='', amount_blinder=''):
         super().__init__(
             outpoint=outpoint, txid=txid, vout=vout,
             amount=amount, descriptor=descriptor,
             scriptsig_template=scriptsig_template)
         self.value = ConfidentialValue.create(value, amount)
-        self.asset = asset
+        self.asset = ConfidentialAsset(asset)
         self.is_issuance = is_issuance
         self.is_blind_issuance = is_blind_issuance
         self.is_pegin = is_pegin
         self.pegin_btc_tx_size = int(pegin_btc_tx_size)
-        self.fedpeg_script = fedpeg_script
-        self.asset_blinder = asset_blinder
-        self.amount_blinder = amount_blinder
+        self.fedpeg_script = Script(fedpeg_script)
+        self.asset_blinder = BlindFactor.create(asset_blinder)
+        self.amount_blinder = BlindFactor.create(amount_blinder)
         if self.amount == 0:
             self.amount = self.value.amount
 
@@ -294,7 +341,7 @@ class ElementsUtxoData(UtxoData):
     # @brief equal method.
     # @param[in] other      other object.
     # @return true or false.
-    def __eq__(self, other):
+    def __eq__(self, other: 'ElementsUtxoData') -> bool:
         if not isinstance(other, ElementsUtxoData):
             return NotImplemented
         return self.outpoint == other.outpoint
@@ -303,7 +350,7 @@ class ElementsUtxoData(UtxoData):
     # @brief diff method.
     # @param[in] other      other object.
     # @return true or false.
-    def __lt__(self, other):
+    def __lt__(self, other: 'ElementsUtxoData') -> bool:
         if not isinstance(other, ElementsUtxoData):
             return NotImplemented
         return (self.outpoint) < (other.outpoint)
@@ -312,28 +359,28 @@ class ElementsUtxoData(UtxoData):
     # @brief equal method.
     # @param[in] other      other object.
     # @return true or false.
-    def __ne__(self, other):
+    def __ne__(self, other: 'ElementsUtxoData') -> bool:
         return not self.__eq__(other)
 
     ##
     # @brief diff method.
     # @param[in] other      other object.
     # @return true or false.
-    def __le__(self, other):
+    def __le__(self, other: 'ElementsUtxoData') -> bool:
         return self.__lt__(other) or self.__eq__(other)
 
     ##
     # @brief diff method.
     # @param[in] other      other object.
     # @return true or false.
-    def __gt__(self, other):
+    def __gt__(self, other: 'ElementsUtxoData') -> bool:
         return not self.__le__(other)
 
     ##
     # @brief diff method.
     # @param[in] other      other object.
     # @return true or false.
-    def __ge__(self, other):
+    def __ge__(self, other: 'ElementsUtxoData') -> bool:
         return not self.__lt__(other)
 
 
@@ -344,15 +391,19 @@ class UnblindData:
     ##
     # @var asset
     # asset
+    asset: Union[AnyStr, 'ConfidentialAsset']
     ##
     # @var value
     # value
+    value: 'ConfidentialValue'
     ##
     # @var asset_blinder
     # asset blind factor
+    asset_blinder: 'BlindFactor'
     ##
     # @var amount_blinder
     # amount blind factor
+    amount_blinder: 'BlindFactor'
 
     ##
     # @brief constructor.
@@ -360,7 +411,8 @@ class UnblindData:
     # @param[in] amount             amount
     # @param[in] asset_blinder      asset blind factor
     # @param[in] amount_blinder     amount blind factor
-    def __init__(self, asset, amount, asset_blinder, amount_blinder):
+    def __init__(self, asset, amount: int,
+                 asset_blinder, amount_blinder):
         self.asset = asset
         self.value = ConfidentialValue(amount)
         self.asset_blinder = BlindFactor(asset_blinder)
@@ -369,7 +421,7 @@ class UnblindData:
     ##
     # @brief get string.
     # @return hex
-    def __str__(self):
+    def __str__(self) -> str:
         return '{},{}'.format(self.asset, self.value)
 
 
@@ -380,9 +432,11 @@ class BlindData(UnblindData):
     ##
     # @var vout
     # txout array index
+    vout: int
     ##
     # @var is_issuance
     # issuance flag
+    is_issuance: bool
 
     ##
     # @brief constructor.
@@ -391,7 +445,8 @@ class BlindData(UnblindData):
     # @param[in] amount             amount
     # @param[in] asset_blinder      asset blind factor
     # @param[in] amount_blinder     amount blind factor
-    def __init__(self, vout, asset, amount, asset_blinder, amount_blinder):
+    def __init__(self, vout: int, asset, amount: int,
+                 asset_blinder, amount_blinder):
         super().__init__(asset, amount, asset_blinder, amount_blinder)
         self.vout = vout
         self.is_issuance = False
@@ -404,9 +459,11 @@ class IssuanceAssetBlindData(BlindData):
     ##
     # @var outpoint
     # issuance outpoint
+    outpoint: 'OutPoint'
     ##
     # @var is_issuance
     # issuance flag
+    is_issuance: bool
 
     ##
     # @brief constructor.
@@ -415,7 +472,8 @@ class IssuanceAssetBlindData(BlindData):
     # @param[in] asset              asset
     # @param[in] amount             amount
     # @param[in] amount_blinder     amount blind factor
-    def __init__(self, outpoint, vout, asset, amount, amount_blinder):
+    def __init__(self, outpoint: OutPoint, vout: int, asset,
+                 amount: int, amount_blinder):
         super().__init__(vout, asset, amount, EMPTY_BLINDER, amount_blinder)
         self.outpoint = outpoint
         self.is_issuance = True
@@ -428,9 +486,11 @@ class IssuanceTokenBlindData(BlindData):
     ##
     # @var outpoint
     # issuance outpoint
+    outpoint: 'OutPoint'
     ##
     # @var is_issuance
     # issuance flag
+    is_issuance: bool
 
     ##
     # @brief constructor.
@@ -439,7 +499,8 @@ class IssuanceTokenBlindData(BlindData):
     # @param[in] asset              asset
     # @param[in] amount             amount
     # @param[in] amount_blinder     amount blind factor
-    def __init__(self, outpoint, vout, asset, amount, amount_blinder):
+    def __init__(self, outpoint: OutPoint, vout: int, asset,
+                 amount: int, amount_blinder):
         super().__init__(vout, asset, amount, EMPTY_BLINDER, amount_blinder)
         self.outpoint = outpoint
         self.is_issuance = True
@@ -452,30 +513,38 @@ class Issuance:
     ##
     # @var entropy
     # entropy
+    entropy: 'BlindFactor'
     ##
     # @var nonce
     # nonce
+    nonce: 'BlindFactor'
     ##
     # @var asset_value
     # asset value
+    asset_value: 'ConfidentialValue'
     ##
     # @var token_value
     # token value
+    token_value: 'ConfidentialValue'
 
     ##
     # @brief constructor.
-    def __init__(self, entropy='', nonce='', asset_value=0, token_value=0):
-        self.entropy = entropy
-        self.nonce = nonce
+    # @param[in] entropy          entropy
+    # @param[in] nonce            nonce
+    # @param[in] asset_value      asset amount
+    # @param[in] token_value      token amount
+    def __init__(self, entropy='', nonce='',
+                 asset_value: int = 0, token_value: int = 0):
+        self.entropy = BlindFactor.create(entropy)
+        self.nonce = BlindFactor.create(nonce)
         self.asset_value = ConfidentialValue(asset_value)
         self.token_value = ConfidentialValue(token_value)
 
     ##
     # @brief get string.
     # @return hex
-    def __str__(self):
-        return '{},{},{}'.format(
-            self.entropy, self.asset_value, self.token_value)
+    def __str__(self) -> str:
+        return '{},{},{}'.format(str(self.entropy), self.asset_value, self.token_value)
 
 
 ##
@@ -485,22 +554,24 @@ class IssuanceKeyPair:
     ##
     # @var asset_key
     # asset blinding key
+    asset_key: Optional['Privkey']
     ##
     # @var token_key
     # token blinding key
+    token_key: Optional['Privkey']
 
     ##
     # @brief constructor.
     # @param[in] asset_key  asset blinding key
     # @param[in] token_key  token blinding key
     def __init__(self, asset_key='', token_key=''):
-        self.asset_key = asset_key
-        self.token_key = token_key
+        self.asset_key = Privkey.from_hex_ignore_error(asset_key)
+        self.token_key = Privkey.from_hex_ignore_error(token_key)
 
     ##
     # @brief get string.
     # @return hex
-    def __str__(self):
+    def __str__(self) -> str:
         return 'IssuanceKeyPair'
 
 
@@ -511,9 +582,11 @@ class ConfidentialTxIn(TxIn):
     ##
     # @var pegin_witness_stack
     # pegin witness stack
+    pegin_witness_stack: List[Union['ByteData', 'Script']]
     ##
     # @var issuance
     # issuance
+    issuance: 'Issuance'
 
     ##
     # @brief constructor.
@@ -521,8 +594,9 @@ class ConfidentialTxIn(TxIn):
     # @param[in] txid       txid
     # @param[in] vout       vout
     # @param[in] sequence   sequence
-    def __init__(self, outpoint=None, txid='', vout=0,
-                 sequence=TxIn.SEQUENCE_DISABLE):
+    def __init__(self, outpoint: Optional['OutPoint'] = None,
+                 txid='', vout: int = 0,
+                 sequence: int = TxIn.SEQUENCE_DISABLE):
         super().__init__(outpoint, txid, vout, sequence)
         self.pegin_witness_stack = []
         self.issuance = Issuance()
@@ -535,18 +609,23 @@ class ConfidentialTxOut(TxOut):
     ##
     # @var value
     # value
+    value: 'ConfidentialValue'
     ##
     # @var asset
     # asset
+    asset: 'ConfidentialAsset'
     ##
     # @var nonce
     # nonce
+    nonce: 'ConfidentialNonce'
     ##
     # @var surjectionproof
     # surjection proof
+    surjectionproof: Union[List[int], AnyStr, 'ByteData']
     ##
     # @var rangeproof
     # range proof
+    rangeproof: Union[List[int], AnyStr, 'ByteData']
 
     ##
     # @brief get destroy amount txout.
@@ -555,7 +634,8 @@ class ConfidentialTxOut(TxOut):
     # @param[in] nonce      nonce
     # @return ConfidentialTxOut
     @classmethod
-    def for_destroy_amount(cls, amount, asset, nonce=''):
+    def for_destroy_amount(
+            cls, amount: int, asset, nonce='') -> 'ConfidentialTxOut':
         return ConfidentialTxOut(amount, asset=asset, nonce=nonce,
                                  locking_script='6a')
 
@@ -565,7 +645,7 @@ class ConfidentialTxOut(TxOut):
     # @param[in] asset      asset
     # @return ConfidentialTxOut
     @classmethod
-    def for_fee(cls, amount, asset):
+    def for_fee(cls, amount: int, asset) -> 'ConfidentialTxOut':
         return ConfidentialTxOut(amount, asset=asset)
 
     ##
@@ -607,7 +687,8 @@ class ConfidentialTxOut(TxOut):
     # @param[in] is_confidential  Returns Confidential Address if possible.
     # @return address.
     def get_address(self, network=Network.LIQUID_V1,
-                    is_confidential=False):
+                    is_confidential: bool = False,
+                    ) -> Union['Address', 'ConfidentialAddress']:
         _network = Network.get(network)
         if _network not in [Network.LIQUID_V1, Network.ELEMENTS_REGTEST]:
             raise CfdError(error_code=1,
@@ -638,22 +719,30 @@ class TargetAmountData:
     ##
     # @var amount
     # amount
+    amount: int
     ##
     # @var asset
     # asset
+    asset: ConfidentialAsset
     ##
     # @var reserved_address
     # reserved address
+    reserved_address: Union[str, 'Address', 'ConfidentialAddress']
 
     ##
     # @brief constructor.
     # @param[in] amount             amount
     # @param[in] asset              asset
     # @param[in] reserved_address   reserved address
-    def __init__(self, amount, asset, reserved_address=''):
+    def __init__(self, amount: int, asset,
+                 reserved_address: Union[str, 'Address', 'ConfidentialAddress'] = ''):
         self.amount = amount
-        self.asset = asset
-        self.reserved_address = reserved_address
+        self.asset = ConfidentialAsset(asset)
+        if isinstance(reserved_address, Address) or \
+                isinstance(reserved_address, ConfidentialAddress):
+            self.reserved_address = reserved_address
+        else:
+            self.reserved_address = str(reserved_address)
 
 
 ##
@@ -663,43 +752,54 @@ class ConfidentialTransaction(_TransactionBase):
     ##
     # @var hex
     # transaction hex string
+    hex: str
     ##
     # @var txin_list
     # transaction input list
+    txin_list: List['ConfidentialTxIn']
     ##
     # @var txout_list
     # transaction output list
+    txout_list: List['ConfidentialTxOut']
     ##
     # @var txid
     # txid
+    txid: 'Txid'
     ##
     # @var wtxid
     # wtxid
+    wtxid: 'Txid'
     ##
     # @var wit_hash
     # wit_hash
+    wit_hash: str
     ##
     # @var size
     # transaction size
+    size: int
     ##
     # @var vsize
     # transaction vsize
+    vsize: int
     ##
     # @var weight
     # transaction size weight
+    weight: int
     ##
     # @var version
     # version
+    version: int
     ##
     # @var locktime
     # locktime
+    locktime: int
 
     ##
     # bitcoin network value.
-    NETWORK = Network.LIQUID_V1.value
+    NETWORK: int = Network.LIQUID_V1.value
     ##
     # blind minimumBits on default.
-    DEFAULT_BLIND_MINIMUM_BITS = 52
+    DEFAULT_BLIND_MINIMUM_BITS: int = 52
     ##
     # transaction's free function name.
     FREE_FUNC_NAME = 'CfdFreeTransactionHandle'
@@ -711,8 +811,8 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] full_dump  full_dump flag
     # @return json string
     @classmethod
-    def parse_to_json(cls, hex, network=Network.LIQUID_V1,
-                      full_dump=False):
+    def parse_to_json(cls, hex: str, network=Network.LIQUID_V1,
+                      full_dump: bool = False) -> str:
         _network = Network.get(network)
         mainchain_str = 'mainnet'
         network_str = 'liquidv1'
@@ -736,14 +836,16 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] locking_script         locking script
     # @return blinding key
     @classmethod
-    def get_default_blinding_key(cls, master_blinding_key, locking_script):
+    def get_default_blinding_key(
+            cls, master_blinding_key, locking_script) -> 'Privkey':
         _key = to_hex_string(master_blinding_key)
         _script = to_hex_string(locking_script)
         util = get_util()
         with util.create_handle() as handle:
-            return util.call_func(
+            key = util.call_func(
                 'CfdGetDefaultBlindingKey', handle.get_handle(),
                 _key, _script)
+            return Privkey(hex=key)
 
     ##
     # @brief get issuance blinding key for elemens default.
@@ -752,15 +854,16 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] vout                   vout
     # @return blinding key
     @classmethod
-    def get_issuance_blinding_key(cls, master_blinding_key,
-                                  txid, vout):
+    def get_issuance_blinding_key(
+            cls, master_blinding_key, txid, vout: int) -> 'Privkey':
         _key = to_hex_string(master_blinding_key)
         _txid = to_hex_string(txid)
         util = get_util()
         with util.create_handle() as handle:
-            return util.call_func(
+            key = util.call_func(
                 'CfdGetIssuanceBlindingKey', handle.get_handle(),
                 _key, _txid, vout)
+            return Privkey(hex=key)
 
     ##
     # @brief create transaction.
@@ -771,7 +874,10 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] enable_cache   enable tx cache
     # @return transaction object
     @classmethod
-    def create(cls, version, locktime, txins=[], txouts=[], enable_cache=True):
+    def create(cls, version: int, locktime: int,
+               txins: List[Union['ConfidentialTxIn', 'TxIn']] = [],
+               txouts: List['ConfidentialTxOut'] = [],
+               enable_cache: bool = True) -> 'ConfidentialTransaction':
         util = get_util()
         with util.create_handle() as handle:
             _tx_handle = util.call_func(
@@ -803,14 +909,14 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] enable_cache   enable tx cache
     # @return transaction object
     @classmethod
-    def from_hex(cls, hex, enable_cache=True):
+    def from_hex(cls, hex, enable_cache: bool = True) -> 'ConfidentialTransaction':
         return ConfidentialTransaction(hex, enable_cache)
 
     ##
     # @brief constructor.
     # @param[in] hex            tx hex
     # @param[in] enable_cache   enable tx cache
-    def __init__(self, hex, enable_cache=True):
+    def __init__(self, hex, enable_cache: bool = True):
         super().__init__(hex, self.NETWORK, enable_cache)
         self.txin_list = []
         self.txout_list = []
@@ -824,7 +930,9 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] outpoint   outpoint
     # @retval [0] txin
     # @retval [1] index
-    def _get_txin(self, handle, tx_handle, index=0, outpoint=None):
+    def _get_txin(self, handle, tx_handle, index=0,
+                  outpoint: Optional['OutPoint'] = None,
+                  ) -> typing.Tuple['ConfidentialTxIn', int]:
         util = get_util()
 
         if isinstance(outpoint, OutPoint):
@@ -874,7 +982,7 @@ class ConfidentialTransaction(_TransactionBase):
     ##
     # @brief update transaction information.
     # @return void
-    def _update_info(self):
+    def _update_info(self) -> None:
         if self.enable_cache is False:
             return
         util = get_util()
@@ -895,7 +1003,7 @@ class ConfidentialTransaction(_TransactionBase):
     # @brief update transaction input.
     # @param[in] outpoint       outpoint
     # @return void
-    def _update_txin(self, outpoint):
+    def _update_txin(self, outpoint: 'OutPoint'):
         if self.enable_cache is False:
             return
         util = get_util()
@@ -920,7 +1028,8 @@ class ConfidentialTransaction(_TransactionBase):
     # @brief get transaction all data.
     # @retval [0]   txin list
     # @retval [1]   txout list
-    def get_tx_all(self):
+    def get_tx_all(self) -> typing.Tuple[
+            List['ConfidentialTxIn'], List['ConfidentialTxOut']]:
         def get_txin_list(handle, tx_handle):
             txin_list = []
             _count = util.call_func(
@@ -969,7 +1078,7 @@ class ConfidentialTransaction(_TransactionBase):
     ##
     # @brief get transaction output fee index.
     # @return index
-    def get_txout_fee_index(self):
+    def get_txout_fee_index(self) -> int:
         return self.get_txout_index()
 
     ##
@@ -979,8 +1088,8 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] txid       txid
     # @param[in] vout       vout
     # @return void
-    def add_txin(self, outpoint=None, sequence=-1,
-                 txid='', vout=0):
+    def add_txin(self, outpoint: Optional['OutPoint'] = None,
+                 sequence: int = -1, txid='', vout: int = 0) -> None:
         sec = TxIn.get_sequence_number(self.locktime, sequence)
         txin = ConfidentialTxIn(
             outpoint=outpoint, sequence=sec, txid=txid, vout=vout)
@@ -995,9 +1104,8 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] asset              asset
     # @param[in] nonce              nonce
     # @return void
-    def add_txout(
-            self, amount=0, address='', locking_script='',
-            value='', asset='', nonce=''):
+    def add_txout(self, amount: int = 0, address='',
+                  locking_script='', value='', asset='', nonce='') -> None:
         txout = ConfidentialTxOut(
             amount, address, locking_script, value, asset, nonce)
         self.add([], [txout])
@@ -1007,7 +1115,7 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] amount             amount
     # @param[in] asset              asset
     # @return void
-    def add_fee_txout(self, amount, asset):
+    def add_fee_txout(self, amount: int, asset) -> None:
         self.add_txout(amount, asset=asset)
 
     ##
@@ -1016,7 +1124,8 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] asset      asset
     # @param[in] nonce      nonce
     # @return void
-    def add_destroy_amount_txout(self, amount, asset, nonce=''):
+    def add_destroy_amount_txout(
+            self, amount: int, asset, nonce='') -> None:
         self.add_txout(amount, locking_script='6a', asset=asset, nonce=nonce)
 
     ##
@@ -1024,7 +1133,8 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] txins          txin list
     # @param[in] txouts         txout list
     # @return void
-    def add(self, txins, txouts):
+    def add(self, txins: List['ConfidentialTxIn'],
+            txouts: List['ConfidentialTxOut']) -> None:
         util = get_util()
         with util.create_handle() as handle:
             _tx_handle = util.call_func(
@@ -1064,7 +1174,7 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] index      index
     # @param[in] amount     amount
     # @return void
-    def update_txout_amount(self, index, amount):
+    def update_txout_amount(self, index: int, amount: int) -> None:
         util = get_util()
         with util.create_handle() as handle:
             self.hex = util.call_func(
@@ -1077,7 +1187,7 @@ class ConfidentialTransaction(_TransactionBase):
     # @brief update transaction output fee amount.
     # @param[in] amount     amount
     # @return void
-    def update_txout_fee_amount(self, amount):
+    def update_txout_fee_amount(self, amount: int) -> None:
         index = self.get_txout_index()
         self.update_txout_amount(index, amount)
 
@@ -1091,10 +1201,12 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] minimum_bits                   minimum bits
     # @param[in] collect_blinder                blinder collect flag.
     # @return blinder_list (if collect_blinder is true)
-    def blind_txout(self, utxo_list, confidential_address_list=[],
+    def blind_txout(self, utxo_list: List['ElementsUtxoData'],
+                    confidential_address_list=[],
                     direct_confidential_key_map={},
-                    minimum_range_value=1, exponent=0, minimum_bits=-1,
-                    collect_blinder=False):
+                    minimum_range_value: int = 1, exponent: int = 0,
+                    minimum_bits: int = -1,
+                    collect_blinder: bool = False) -> List['BlindData']:
         return self.blind(
             utxo_list=utxo_list,
             confidential_address_list=confidential_address_list,
@@ -1114,12 +1226,14 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] minimum_bits                   minimum bits
     # @param[in] collect_blinder                blinder collect flag.
     # @return blinder_list (if collect_blinder is true)
-    def blind(self, utxo_list,
-              issuance_key_map={},
-              confidential_address_list=[],
-              direct_confidential_key_map={},
-              minimum_range_value=1, exponent=0, minimum_bits=-1,
-              collect_blinder=False):
+    def blind(
+        self, utxo_list: List['ElementsUtxoData'],
+        issuance_key_map={},
+        confidential_address_list=[],
+        direct_confidential_key_map={},
+        minimum_range_value: int = 1, exponent: int = 0, minimum_bits: int = -1,
+        collect_blinder: bool = False,
+    ) -> List[Union['BlindData', 'IssuanceAssetBlindData', 'IssuanceTokenBlindData']]:
         if minimum_bits == -1:
             minimum_bits = self.DEFAULT_BLIND_MINIMUM_BITS
 
@@ -1142,7 +1256,8 @@ class ConfidentialTransaction(_TransactionBase):
                     asset_key, token_key = '', ''
                     if str(txin.outpoint) in issuance_key_map:
                         item = issuance_key_map[str(txin.outpoint)]
-                        asset_key, token_key = item.asset_key, item.token_key
+                        asset_key = str(item.asset_key)
+                        token_key = str(item.token_key)
                         issuance_count += 1
                     util.call_func(
                         'CfdAddBlindTxInData', handle.get_handle(),
@@ -1213,7 +1328,7 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] index          txout index
     # @param[in] blinding_key   blinding key
     # @return UnblindData
-    def unblind_txout(self, index, blinding_key):
+    def unblind_txout(self, index: int, blinding_key) -> 'UnblindData':
         util = get_util()
         with util.create_handle() as handle:
             asset, asset_amount, asset_blinder,\
@@ -1230,7 +1345,8 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] token_key      token blinding key
     # @retval [0]   asset unblind data
     # @retval [1]   token unblind data
-    def unblind_issuance(self, index, asset_key, token_key=''):
+    def unblind_issuance(self, index: int, asset_key,
+                         token_key='') -> 'UnblindData':
         util = get_util()
         with util.create_handle() as handle:
             asset, asset_amount, asset_blinder, amount_blinder, token,\
@@ -1252,7 +1368,8 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] address        address
     # @param[in] entropy        entropy
     # @return reissue asset
-    def set_raw_reissue_asset(self, utxo, amount, address, entropy):
+    def set_raw_reissue_asset(self, utxo: 'ElementsUtxoData', amount: int,
+                              address, entropy) -> 'ConfidentialAsset':
         _amount = amount
         if isinstance(amount, ConfidentialValue):
             _amount = amount.amount
@@ -1275,8 +1392,8 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] redeem_script  redeem script
     # @param[in] sighashtype    sighash type
     # @return sighash
-    def get_sighash(self, outpoint, hash_type, value, pubkey='',
-                    redeem_script='', sighashtype=SigHashType.ALL):
+    def get_sighash(self, outpoint: 'OutPoint', hash_type, value, pubkey='',
+                    redeem_script='', sighashtype=SigHashType.ALL) -> 'ByteData':
         _hash_type = HashType.get(hash_type)
         _pubkey = to_hex_string(pubkey)
         _script = to_hex_string(redeem_script)
@@ -1304,8 +1421,8 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] grind_r        grind-R flag
     # @return void
     def sign_with_privkey(
-            self, outpoint, hash_type, privkey, value,
-            sighashtype=SigHashType.ALL, grind_r=True):
+            self, outpoint: 'OutPoint', hash_type, privkey, value,
+            sighashtype=SigHashType.ALL, grind_r: bool = True) -> None:
         _hash_type = HashType.get(hash_type)
         if isinstance(privkey, Privkey):
             _privkey = privkey
@@ -1336,7 +1453,8 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] hash_type      hash type
     # @param[in] value          value
     # @return void
-    def verify_sign(self, outpoint, address, hash_type, value):
+    def verify_sign(self, outpoint: 'OutPoint', address, hash_type,
+                    value) -> None:
         _hash_type = HashType.get(hash_type)
         _value = value
         if isinstance(value, ConfidentialValue) is False:
@@ -1361,8 +1479,9 @@ class ConfidentialTransaction(_TransactionBase):
     # @retval True      signature valid.
     # @retval False     signature invalid.
     def verify_signature(
-            self, outpoint, signature, hash_type, pubkey, value,
-            redeem_script='', sighashtype=SigHashType.ALL):
+            self, outpoint: 'OutPoint', signature,
+            hash_type, pubkey, value,
+            redeem_script='', sighashtype=SigHashType.ALL) -> bool:
         _signature = to_hex_string(signature)
         _pubkey = to_hex_string(pubkey)
         _script = to_hex_string(redeem_script)
@@ -1404,10 +1523,15 @@ class ConfidentialTransaction(_TransactionBase):
     # @retval [2]      total tx fee.
     @classmethod
     def select_coins(
-            cls, utxo_list, tx_fee_amount, target_list, fee_asset,
-            effective_fee_rate=0.11, long_term_fee_rate=0.11,
-            dust_fee_rate=3.0, knapsack_min_change=-1,
-            exponent=0, minimum_bits=52):
+            cls,
+            utxo_list: List['ElementsUtxoData'],
+            tx_fee_amount: int,
+            target_list: List['TargetAmountData'],
+            fee_asset,
+            effective_fee_rate: float = 0.11, long_term_fee_rate: float = 0.11,
+            dust_fee_rate: float = 3.0, knapsack_min_change: int = -1,
+            exponent: int = 0, minimum_bits: int = 52,
+    ) -> typing.Tuple[List['ElementsUtxoData'], int, Dict[str, int]]:
         if (isinstance(utxo_list, list) is False) or (
                 len(utxo_list) == 0):
             raise CfdError(error_code=1, message='Error: Invalid utxo_list.')
@@ -1471,7 +1595,8 @@ class ConfidentialTransaction(_TransactionBase):
                         total_amount = util.call_func(
                             'CfdGetSelectedCoinAssetAmount',
                             handle.get_handle(), tx_handle.get_handle(), index)
-                        total_amount_map[target.asset] = total_amount
+                        key = str(target.asset)  # not optimisation
+                        total_amount_map[key] = total_amount
                 return selected_utxo_list, _utxo_fee, total_amount_map
 
     ##
@@ -1485,8 +1610,11 @@ class ConfidentialTransaction(_TransactionBase):
     # @retval [0]      total tx fee. (txout fee + utxo fee)
     # @retval [1]      txout fee.
     # @retval [2]      utxo fee.
-    def estimate_fee(self, utxo_list, fee_asset, fee_rate=0.11,
-                     is_blind=True, exponent=0, minimum_bits=52):
+    def estimate_fee(self, utxo_list: List['ElementsUtxoData'],
+                     fee_asset,
+                     fee_rate: float = 0.11, is_blind: bool = True,
+                     exponent: int = 0, minimum_bits: int = 52,
+                     ) -> typing.Tuple[int, int, int]:
         _fee_asset = ConfidentialAsset(fee_asset)
         if (isinstance(utxo_list, list) is False) or (
                 len(utxo_list) == 0):
@@ -1548,11 +1676,15 @@ class ConfidentialTransaction(_TransactionBase):
     # @retval [0]      total tx fee.
     # @retval [1]      used reserved address. (None or reserved_address)
     def fund_raw_transaction(
-            self, txin_utxo_list, utxo_list, target_list,
-            fee_asset, effective_fee_rate=0.11,
-            long_term_fee_rate=-1.0, dust_fee_rate=-1.0,
-            knapsack_min_change=-1, is_blind=True,
-            exponent=0, minimum_bits=52):
+            self, txin_utxo_list: List['ElementsUtxoData'],
+            utxo_list: List['ElementsUtxoData'],
+            target_list: List['TargetAmountData'],
+            fee_asset,
+            effective_fee_rate: float = 0.11,
+            long_term_fee_rate: float = -1.0,
+            dust_fee_rate: float = -1.0,
+            knapsack_min_change: int = -1, is_blind: bool = True,
+            exponent: int = 0, minimum_bits: int = 52) -> typing.Tuple[int, List[str]]:
         util = get_util()
 
         def set_opt(handle, tx_handle, key, i_val=0, f_val=0, b_val=False):

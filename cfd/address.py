@@ -3,6 +3,7 @@
 # @file address.py
 # @brief address function implements file.
 # @note Copyright 2020 CryptoGarage
+import typing
 from .util import get_util, CfdError, JobHandle, to_hex_string
 from .key import Network, Pubkey
 from .script import HashType, Script
@@ -15,27 +16,35 @@ class Address:
     ##
     # @var address
     # address string
+    address: str
     ##
     # @var locking_script
     # locking script (scriptPubkey)
+    locking_script: typing.Union[str, 'Script']
     ##
     # @var pubkey
     # pubkey for pubkey hash.
+    pubkey: typing.Union[str, 'Pubkey']
     ##
     # @var redeem_script
     # redeem script for script hash.
+    redeem_script: typing.Union[str, 'Script']
     ##
     # @var p2sh_wrapped_script
     # witness locking script for p2sh.
+    p2sh_wrapped_script: typing.Union[str, 'Script']
     ##
     # @var hash_type
     # hash type.
+    hash_type: 'HashType'
     ##
     # @var network
     # network.
+    network: 'Network'
     ##
     # @var witness_version
     # witness version.
+    witness_version: int
 
     ##
     # @brief constructor.
@@ -48,27 +57,32 @@ class Address:
     # @param[in] p2sh_wrapped_script    witness locking script for p2sh
     def __init__(
             self,
-            address,
+            address: str,
             locking_script,
             hash_type=HashType.P2SH,
             network=Network.MAINNET,
             pubkey='',
             redeem_script='',
             p2sh_wrapped_script=''):
+        _locking_script = to_hex_string(locking_script)
+        _redeem_script = to_hex_string(redeem_script)
+        _pubkey = to_hex_string(pubkey)
         self.address = address
-        self.locking_script = locking_script
-        self.pubkey = pubkey
-        self.redeem_script = redeem_script
+        self.locking_script = _locking_script if len(
+            _locking_script) == 0 else Script(locking_script)
+        self.pubkey = _pubkey if len(_pubkey) == 0 else Pubkey(pubkey)
+        self.redeem_script = _redeem_script if len(
+            _redeem_script) == 0 else Script(redeem_script)
         self.p2sh_wrapped_script = p2sh_wrapped_script
-        self.hash_type = hash_type
-        self.network = network
+        self.hash_type = HashType.get(hash_type)
+        self.network = Network.get(network)
         self.witness_version = -1
         if p2sh_wrapped_script and len(p2sh_wrapped_script) > 2:
-            if int(locking_script[0:2], 16) < 16:
+            if int(_locking_script[0:2], 16) < 16:
                 self.witness_version = int(p2sh_wrapped_script[0:2])
-        elif len(locking_script) > 2:
-            if int(locking_script[0:2], 16) < 16:
-                self.witness_version = int(locking_script[0:2])
+        elif len(_locking_script) > 2:
+            if int(_locking_script[0:2], 16) < 16:
+                self.witness_version = int(_locking_script[0:2])
 
     ##
     # @brief get string.
@@ -87,10 +101,10 @@ class AddressUtil:
     # @param[in] hash_type        hash type
     # @return address object.
     @classmethod
-    def parse(cls, address, hash_type=HashType.P2WPKH):
+    def parse(cls, address, hash_type=HashType.P2WPKH) -> 'Address':
         util = get_util()
         with util.create_handle() as handle:
-            network, _hash_type, witness_version,\
+            network, _hash_type, _witness_version,\
                 locking_script, _ = util.call_func(
                     'CfdGetAddressInfo', handle.get_handle(), str(address))
             _hash_type = HashType.get(_hash_type)
@@ -114,7 +128,7 @@ class AddressUtil:
     # @param[in] network          network
     # @return address object.
     @classmethod
-    def p2pkh(cls, pubkey, network=Network.MAINNET):
+    def p2pkh(cls, pubkey, network=Network.MAINNET) -> 'Address':
         return cls.from_pubkey_hash(
             pubkey, HashType.P2PKH, network)
 
@@ -124,7 +138,7 @@ class AddressUtil:
     # @param[in] network          network
     # @return address object.
     @classmethod
-    def p2wpkh(cls, pubkey, network=Network.MAINNET):
+    def p2wpkh(cls, pubkey, network=Network.MAINNET) -> 'Address':
         return cls.from_pubkey_hash(
             pubkey, HashType.P2WPKH, network)
 
@@ -134,7 +148,7 @@ class AddressUtil:
     # @param[in] network          network
     # @return address object.
     @classmethod
-    def p2sh_p2wpkh(cls, pubkey, network=Network.MAINNET):
+    def p2sh_p2wpkh(cls, pubkey, network=Network.MAINNET) -> 'Address':
         return cls.from_pubkey_hash(
             pubkey, HashType.P2SH_P2WPKH, network)
 
@@ -144,7 +158,7 @@ class AddressUtil:
     # @param[in] network          network
     # @return address object.
     @classmethod
-    def p2sh(cls, redeem_script, network=Network.MAINNET):
+    def p2sh(cls, redeem_script, network=Network.MAINNET) -> 'Address':
         return cls.from_script_hash(
             redeem_script, HashType.P2SH, network)
 
@@ -154,7 +168,7 @@ class AddressUtil:
     # @param[in] network          network
     # @return address object.
     @classmethod
-    def p2wsh(cls, redeem_script, network=Network.MAINNET):
+    def p2wsh(cls, redeem_script, network=Network.MAINNET) -> 'Address':
         return cls.from_script_hash(
             redeem_script, HashType.P2WSH, network)
 
@@ -164,7 +178,7 @@ class AddressUtil:
     # @param[in] network          network
     # @return address object.
     @classmethod
-    def p2sh_p2wsh(cls, redeem_script, network=Network.MAINNET):
+    def p2sh_p2wsh(cls, redeem_script, network=Network.MAINNET) -> 'Address':
         return cls.from_script_hash(
             redeem_script, HashType.P2SH_P2WSH, network)
 
@@ -179,7 +193,7 @@ class AddressUtil:
             cls,
             pubkey,
             hash_type,
-            network=Network.MAINNET):
+            network=Network.MAINNET) -> 'Address':
         _pubkey = str(pubkey)
         _hash_type = HashType.get(hash_type)
         _network = Network.get(network)
@@ -208,7 +222,7 @@ class AddressUtil:
             cls,
             redeem_script,
             hash_type,
-            network=Network.MAINNET):
+            network=Network.MAINNET) -> 'Address':
         _script = str(redeem_script)
         _hash_type = HashType.get(hash_type)
         _network = Network.get(network)
@@ -236,10 +250,10 @@ class AddressUtil:
     @classmethod
     def multisig(
             cls,
-            require_num,
+            require_num: int,
             pubkey_list,
             hash_type,
-            network=Network.MAINNET):
+            network=Network.MAINNET) -> 'Address':
         if isinstance(require_num, int) is False:
             raise CfdError(
                 error_code=1, message='Error: Invalid require_num type.')
@@ -290,7 +304,7 @@ class AddressUtil:
     def from_locking_script(
             cls,
             locking_script,
-            network=Network.MAINNET):
+            network=Network.MAINNET) -> 'Address':
         _script = str(locking_script)
         _network = Network.get(network)
         util = get_util()
@@ -311,7 +325,7 @@ class AddressUtil:
             cls,
             redeem_script,
             hash_type,
-            network=Network.MAINNET):
+            network=Network.MAINNET) -> typing.List['Address']:
         _script = str(redeem_script)
         _hash_type = HashType.get(hash_type)
         _network = Network.get(network)

@@ -3,6 +3,7 @@
 # @file script.py
 # @brief bitcoin script function implements file.
 # @note Copyright 2020 CryptoGarage
+from typing import List
 from .util import CfdError, to_hex_string, get_util, JobHandle
 from .key import SignParameter, SigHashType
 from enum import Enum
@@ -34,13 +35,13 @@ class HashType(Enum):
     ##
     # @brief get string.
     # @return name.
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name.lower().replace('_', '-')
 
     ##
     # @brief get string.
     # @return name.
-    def as_str(self):
+    def as_str(self) -> str:
         return self.name.lower().replace('_', '-')
 
     ##
@@ -48,7 +49,7 @@ class HashType(Enum):
     # @param[in] hashtype  hashtype
     # @return object
     @classmethod
-    def get(cls, hashtype):
+    def get(cls, hashtype) -> 'HashType':
         if (isinstance(hashtype, HashType)):
             return hashtype
         elif (isinstance(hashtype, int)):
@@ -77,16 +78,18 @@ class Script:
     ##
     # @var hex
     # script hex
+    hex: str
     ##
     # @var asm
     # asm
+    asm: str
 
     ##
     # @brief get script from asm.
     # @param[in] script_items  asm strings (list or string)
     # @return script object
     @classmethod
-    def from_asm(cls, script_items):
+    def from_asm(cls, script_items: List[str]) -> 'Script':
         _asm = script_items
         if isinstance(script_items, list):
             _asm = ' '.join(script_items)
@@ -106,7 +109,9 @@ class Script:
     # @param[in] sign_parameter_list    signature list
     # @return script object
     @classmethod
-    def create_multisig_scriptsig(cls, redeem_script, sign_parameter_list):
+    def create_multisig_scriptsig(
+            cls, redeem_script,
+            sign_parameter_list: List['SignParameter']) -> 'Script':
         _script = to_hex_string(redeem_script)
         util = get_util()
         with util.create_handle() as handle:
@@ -144,13 +149,17 @@ class Script:
     # @brief constructor.
     # @param[in] script     script
     def __init__(self, script):
-        self.hex = to_hex_string(script)
-        self.asm = Script._parse(self.hex)
+        if isinstance(script, Script):
+            self.hex = script.hex
+            self.asm = script.asm
+        else:
+            self.hex = to_hex_string(script)
+            self.asm = Script._parse(self.hex)
 
     ##
     # @brief get string.
     # @return script hex.
-    def __str__(self):
+    def __str__(self) -> str:
         return self.hex
 
     ##

@@ -3,10 +3,12 @@
 # @file descriptor.py
 # @brief hdwallet function implements file.
 # @note Copyright 2020 CryptoGarage
+from typing import List, Optional, Union
 from .util import get_util, JobHandle, CfdError
-from .address import AddressUtil
-from .key import Network
-from .script import HashType
+from .address import Address, AddressUtil
+from .key import Network, Pubkey
+from .hdwallet import ExtPubkey, ExtPrivkey
+from .script import HashType, Script
 from enum import Enum
 
 
@@ -51,7 +53,7 @@ class DescriptorScriptType(Enum):
     ##
     # @brief get string.
     # @return name.
-    def as_str(self):
+    def as_str(self) -> str:
         return self.name.lower().replace('_', '')
 
     ##
@@ -59,7 +61,7 @@ class DescriptorScriptType(Enum):
     # @param[in] desc_type      descriptor type
     # @return object.
     @classmethod
-    def get(cls, desc_type):
+    def get(cls, desc_type) -> 'DescriptorScriptType':
         if (isinstance(desc_type, DescriptorScriptType)):
             return desc_type
         elif (isinstance(desc_type, int)):
@@ -97,7 +99,7 @@ class DescriptorKeyType(Enum):
     ##
     # @brief get string.
     # @return name.
-    def as_str(self):
+    def as_str(self) -> str:
         if self == DescriptorKeyType.PUBLIC:
             return 'pubkey'
         elif self == DescriptorKeyType.BIP32:
@@ -111,7 +113,7 @@ class DescriptorKeyType(Enum):
     # @param[in] desc_type      descriptor type
     # @return object.
     @classmethod
-    def get(cls, desc_type):
+    def get(cls, desc_type) -> 'DescriptorKeyType':
         if (isinstance(desc_type, DescriptorKeyType)):
             return desc_type
         elif (isinstance(desc_type, int)):
@@ -142,15 +144,19 @@ class DescriptorKeyData:
     ##
     # @var key_type
     # key type
+    key_type: 'DescriptorKeyType'
     ##
     # @var pubkey
     # pubkey
+    pubkey: Union['Pubkey', str]
     ##
     # @var ext_pubkey
     # ext pubkey
+    ext_pubkey: Union['ExtPubkey', str]
     ##
     # @var ext_privkey
     # ext privkey
+    ext_privkey: Union['ExtPrivkey', str]
 
     ##
     # @brief constructor.
@@ -165,14 +171,24 @@ class DescriptorKeyData:
             ext_pubkey='',
             ext_privkey=''):
         self.key_type = DescriptorKeyType.get(key_type)
-        self.pubkey = pubkey
-        self.ext_pubkey = ext_pubkey
-        self.ext_privkey = ext_privkey
+        self.pubkey = pubkey if isinstance(pubkey, str) else Pubkey(pubkey)
+        if ext_pubkey is None:
+            self.ext_pubkey = ''
+        elif isinstance(ext_pubkey, str):
+            self.ext_pubkey = ext_pubkey
+        else:
+            self.ext_pubkey = ExtPubkey(ext_pubkey)
+        if ext_privkey is None:
+            self.ext_privkey = ''
+        elif isinstance(ext_privkey, str):
+            self.ext_privkey = ext_privkey
+        else:
+            self.ext_privkey = ExtPrivkey(ext_privkey)
 
     ##
     # @brief get string.
     # @return descriptor.
-    def __str__(self):
+    def __str__(self) -> str:
         if self.key_type == DescriptorKeyType.PUBLIC:
             return str(self.pubkey)
         elif self.key_type == DescriptorKeyType.BIP32:
@@ -189,30 +205,39 @@ class DescriptorScriptData:
     ##
     # @var script_type
     # script type
+    script_type: 'DescriptorScriptType'
     ##
     # @var depth
     # depth
+    depth: int
     ##
     # @var hash_type
     # hash type
+    hash_type: 'HashType'
     ##
     # @var address
     # address
+    address: Union[str, 'Address']
     ##
     # @var locking_script
     # locking script
+    locking_script: Union[str, 'Script']
     ##
     # @var redeem_script
     # redeem script for script hash
+    redeem_script: Union[str, 'Script']
     ##
     # @var key_data
     # key data
+    key_data: Optional['DescriptorKeyType']
     ##
     # @var key_list
     # key list
+    key_list: List['DescriptorKeyData']
     ##
     # @var multisig_require_num
     # multisig require num
+    multisig_require_num: int
 
     ##
     # @brief constructor.
@@ -226,16 +251,18 @@ class DescriptorScriptData:
     # @param[in] key_list       key list
     # @param[in] multisig_require_num   multisig require num
     def __init__(
-            self, script_type, depth, hash_type, address,
+            self, script_type: 'DescriptorScriptType', depth: int,
+            hash_type: 'HashType', address,
             locking_script,
             redeem_script='',
-            key_data=None,
-            key_list=[],
-            multisig_require_num=0):
+            key_data: Optional['DescriptorKeyData'] = None,
+            key_list: List['DescriptorKeyType'] = [],
+            multisig_require_num: int = 0):
         self.script_type = script_type
         self.depth = depth
         self.hash_type = hash_type
-        self.address = address
+        self.address = address if isinstance(
+            address, Address) else str(address)
         self.locking_script = locking_script
         self.redeem_script = redeem_script
         self.key_data = key_data
@@ -250,25 +277,30 @@ class Descriptor:
     ##
     # @var path
     # bip32 path
+    path: str
     ##
     # @var descriptor
     # descriptor string
+    descriptor: str
     ##
     # @var network
     # network
+    network: 'Network'
     ##
     # @var script_list
     # script list
+    script_list: List['DescriptorScriptData']
     ##
     # @var data
     # reference data
+    data: 'DescriptorScriptData'
 
     ##
     # @brief constructor.
     # @param[in] descriptor     descriptor
     # @param[in] network        network
     # @param[in] path           bip32 path
-    def __init__(self, descriptor, network=Network.MAINNET, path=''):
+    def __init__(self, descriptor, network=Network.MAINNET, path: str = ''):
         self.network = Network.get(network)
         self.path = str(path)
         self.descriptor = self._verify(str(descriptor))
@@ -279,7 +311,7 @@ class Descriptor:
     # @brief verify descriptor.
     # @param[in] descriptor     descriptor
     # @return append checksum descriptor
-    def _verify(self, descriptor):
+    def _verify(self, descriptor: str) -> str:
         util = get_util()
         with util.create_handle() as handle:
             return util.call_func(
@@ -289,7 +321,7 @@ class Descriptor:
     ##
     # @brief parse descriptor.
     # @return script list
-    def _parse(self):
+    def _parse(self) -> List['DescriptorScriptData']:
         util = get_util()
         with util.create_handle() as handle:
             word_handle, max_index = util.call_func(
@@ -357,7 +389,7 @@ class Descriptor:
     ##
     # @brief analyze descriptor.
     # @return reference data
-    def _analyze(self):
+    def _analyze(self) -> 'DescriptorScriptData':
         if (self.script_list[0].hash_type in [
                 HashType.P2WSH, HashType.P2SH]) and (
                 len(self.script_list) > 1) and (
@@ -433,7 +465,8 @@ class Descriptor:
 # @param[in] network        network
 # @param[in] path           bip32 path
 # @retval Descriptor        descriptor object
-def parse_descriptor(descriptor, network=Network.MAINNET, path=''):
+def parse_descriptor(descriptor, network=Network.MAINNET,
+                     path: str = '') -> 'Descriptor':
     return Descriptor(descriptor, network=network, path=path)
 
 
