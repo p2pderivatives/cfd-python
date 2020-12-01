@@ -815,7 +815,8 @@
                 },
                 "error": {
                     "capi": "hex to byte convert error.",
-                    "json": ""
+                    "json": "",
+                    "python": "Error: Invalid hex value."
                 },
                 "exclude": [
                     "json"

@@ -289,8 +289,8 @@ def update_pegin_tx(test_obj, pegin_tx, btc_tx, pegin_address):
     fee_amount = 0
     has_fee = len(tx.txout_list) == 2
     for index, txout in enumerate(tx.txout_list):
-        if txout.locking_script:
-            target_script_pubkey = txout.locking_script
+        if len(txout.locking_script.hex) > 0:
+            target_script_pubkey = str(txout.locking_script)
             target_amount = txout.amount
             target_index = index
         else:
@@ -475,7 +475,7 @@ def test_elements_pkh(test_obj):
     txin_list = []
     txin_utxo_list = []
     for index, txout in enumerate(tx.txout_list):
-        if not txout.locking_script:
+        if not txout.locking_script.hex:
             continue
         temp_addr = str(txout.get_address(network=NETWORK))
         if temp_addr == fee_addr:
@@ -601,7 +601,7 @@ def test_elements_multisig(test_obj):
     txin_list = []
     txin_utxo_list = []
     for index, txout in enumerate(tx.txout_list):
-        if not txout.locking_script:
+        if not txout.locking_script.hex:
             continue
         temp_addr = str(txout.get_address(network=NETWORK))
         if temp_addr == fee_addr:

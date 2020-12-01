@@ -13,6 +13,7 @@ import json
 
 def test_transaction_func1(obj, name, case, req, exp, error):
     try:
+        resp = None
         if 'tx' in req:
             resp = Transaction.from_hex(req['tx'])
         txins, txouts = [], []
@@ -66,6 +67,8 @@ def test_transaction_func1(obj, name, case, req, exp, error):
 
 def test_transaction_func2(obj, name, case, req, exp, error):
     try:
+        resp = None
+        txin = {}
         if 'tx' in req:
             resp = Transaction.from_hex(req['tx'])
         if 'txin' in req:

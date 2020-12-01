@@ -1,4 +1,6 @@
 import json
+import typing
+from typing import List
 from unittest import TestCase
 from tests.util import load_json_file, get_json_file, exec_test,\
     assert_equal, assert_error, assert_match, assert_message
@@ -8,7 +10,7 @@ from cfd.descriptor import parse_descriptor
 from cfd.script import HashType
 from cfd.key import SigHashType, SignParameter, Network
 from cfd.transaction import OutPoint, TxIn
-from cfd.confidential_transaction import ConfidentialTxOut,\
+from cfd.confidential_transaction import BlindData, ConfidentialTxOut,\
     ConfidentialTransaction, ElementsUtxoData, IssuanceKeyPair,\
     TargetAmountData, Issuance, UnblindData,\
     IssuanceAssetBlindData, IssuanceTokenBlindData
@@ -544,15 +546,18 @@ def test_ct_transaction_func4(obj, name, case, req, exp, error):
                                 'Fail: {}:{}:{}'.format(
                                     name, case, 'maxVsize'))
             txout_list = resp['req_output']
-            tx = resp['tx']
+            tx = typing.cast('ConfidentialTransaction', resp['tx'])
+            blinder_list = typing.cast(
+                typing.List[typing.Union['BlindData', 'IssuanceAssetBlindData', 'IssuanceTokenBlindData']], resp['blinder_list'])
             blinding_keys = exp.get('blindingKeys', [])
             issuance_list = exp.get('issuanceList', [])
             txout_index_list = []
             for index, txout in enumerate(tx.txout_list):
                 if txout.value.has_blind():
                     txout_index_list.append(index)
-            for blind_index, blinder in enumerate(resp['blinder_list']):
+            for blind_index, blinder in enumerate(blinder_list):
                 is_find = False
+                data = {}
                 has_asset = isinstance(blinder, IssuanceAssetBlindData)
                 has_token = isinstance(blinder, IssuanceTokenBlindData)
                 if has_asset or has_token:
@@ -746,13 +751,15 @@ def test_parse_tx_func(obj, name, case, req, exp, error):
 
 def test_elements_tx_func(obj, name, case, req, exp, error):
     try:
+        coin_resp = ()
+        resp = ()
         if name == 'Elements.CoinSelection':
             # selected_utxo_list, _utxo_fee, total_amount_map
             utxo_list = obj.utxos.get(req['utxoFile'], [])
             target_list = convert_target_amount(req['targets'])
             fee_info = req.get('feeInfo', {})
             fee_rate = fee_info.get('feeRate', 20.0)
-            resp = ConfidentialTransaction.select_coins(
+            coin_resp = ConfidentialTransaction.select_coins(
                 utxo_list,
                 tx_fee_amount=fee_info.get('txFeeAmount', 0),
                 target_list=target_list,
@@ -798,7 +805,7 @@ def test_elements_tx_func(obj, name, case, req, exp, error):
 
         if name == 'Elements.CoinSelection':
             # selected_utxo_list, _utxo_fee, total_amount_map
-            selected_utxo_list, utxo_fee, total_amount_map = resp
+            selected_utxo_list, utxo_fee, total_amount_map = coin_resp
             assert_equal(obj, name, case, exp, utxo_fee, 'utxoFeeAmount')
             exp_list = convert_elements_utxo(exp['utxos'])
             for exp_utxo in exp_list:
@@ -809,12 +816,13 @@ def test_elements_tx_func(obj, name, case, req, exp, error):
             assert_match(obj, name, case, len(exp_amount_list),
                          len(total_amount_map), 'selectedAmountsLen')
             for exp_amount_data in exp_amount_list:
-                if exp_amount_data.asset not in total_amount_map:
+                if str(exp_amount_data.asset) not in total_amount_map:
+                    print(f'{total_amount_map}')
                     assert_message(obj, name, case,
                                    'selectedAmounts:{}'.format(
                                        exp_amount_data.asset))
                 assert_match(obj, name, case, exp_amount_data.amount,
-                             total_amount_map[exp_amount_data.asset],
+                             total_amount_map[str(exp_amount_data.asset)],
                              'selectedAmounts:{}:amount'.format(
                                  exp_amount_data.asset))
         elif name == 'Elements.EstimateFee':
@@ -864,7 +872,7 @@ def convert_elements_utxo(json_utxo_list):
     return utxo_list
 
 
-def convert_target_amount(json_target_list):
+def convert_target_amount(json_target_list) -> List['TargetAmountData']:
     target_list = []
     for target in json_target_list:
         data = TargetAmountData(
