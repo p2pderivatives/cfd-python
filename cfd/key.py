@@ -3,9 +3,10 @@
 # @file key.py
 # @brief key function implements file.
 # @note Copyright 2020 CryptoGarage
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 import typing
-from .util import ByteData, get_util, CfdError, to_hex_string, CfdErrorCode, JobHandle
+from .util import ByteData, get_util, CfdError,\
+    to_hex_string, CfdErrorCode, JobHandle
 import hashlib
 from enum import Enum
 
@@ -89,6 +90,9 @@ class Network(Enum):
 # @class SigHashType
 # @brief Signature hash type
 class SigHashType(Enum):
+    ##
+    # SigHashType: default
+    DEFAULT = 0
     ##
     # SigHashType: all
     ALL = 1
@@ -222,7 +226,11 @@ class Privkey:
     # @param[in] is_compressed  pubkey compressed
     # @return private key
     @classmethod
-    def from_hex(cls, hex, network=Network.MAINNET, is_compressed: bool = True):
+    def from_hex(
+            cls,
+            hex,
+            network=Network.MAINNET,
+            is_compressed: bool = True):
         return Privkey(hex=hex, network=network,
                        is_compressed=is_compressed)
 
@@ -336,7 +344,10 @@ class Privkey:
     # @param[in] sighash   sighash
     # @param[in] grind_r   grind-r flag
     # @return signature
-    def calculate_ec_signature(self, sighash, grind_r: bool = True) -> 'SignParameter':
+    def calculate_ec_signature(
+            self,
+            sighash,
+            grind_r: bool = True) -> 'SignParameter':
         _sighash = to_hex_string(sighash)
         util = get_util()
         with util.create_handle() as handle:
@@ -370,9 +381,9 @@ class Pubkey:
                 message='Error: Invalid pubkey list.')
         util = get_util()
         with util.create_handle() as handle:
-            word_handle = util.call_func(
+            work_handle = util.call_func(
                 'CfdInitializeCombinePubkey', handle.get_handle())
-            with JobHandle(handle, word_handle,
+            with JobHandle(handle, work_handle,
                            'CfdFreeCombinePubkeyHandle') as key_handle:
                 for pubkey in pubkey_list:
                     util.call_func(
@@ -404,6 +415,16 @@ class Pubkey:
     # @return pubkey hex.
     def __str__(self) -> str:
         return self._hex
+
+    ##
+    # @brief get fingerprint.
+    # @return fingerprint.
+    def get_fingerprint(self) -> 'ByteData':
+        util = get_util()
+        with util.create_handle() as handle:
+            fingerprint = util.call_func(
+                'CfdGetPubkeyFingerprint', handle.get_handle(), self._hex)
+        return ByteData(fingerprint)
 
     ##
     # @brief compress pubkey.
@@ -472,8 +493,11 @@ class Pubkey:
             util = get_util()
             with util.create_handle() as handle:
                 util.call_func(
-                    'CfdVerifyEcSignature', handle.get_handle(),
-                    to_hex_string(sighash), self._hex, to_hex_string(signature))
+                    'CfdVerifyEcSignature',
+                    handle.get_handle(),
+                    to_hex_string(sighash),
+                    self._hex,
+                    to_hex_string(signature))
             return True
         except CfdError as err:
             if err.error_code == CfdErrorCode.SIGN_VERIFICATION.value:
@@ -509,7 +533,10 @@ class SignParameter:
     # @param[in] sighashtype    sighash type
     # @return der encoded signature
     @classmethod
-    def encode_by_der(cls, signature, sighashtype=SigHashType.ALL) -> 'SignParameter':
+    def encode_by_der(
+            cls,
+            signature,
+            sighashtype=SigHashType.ALL) -> 'SignParameter':
         _signature = to_hex_string(signature)
         _sighashtype = SigHashType.get(sighashtype)
         util = get_util()
@@ -632,7 +659,11 @@ class EcdsaAdaptor:
     # @param[in] adaptor                adaptor bytes
     # @return adaptor secret key
     @classmethod
-    def extract_secret(cls, adaptor_signature, signature, adaptor) -> 'Privkey':
+    def extract_secret(
+            cls,
+            adaptor_signature,
+            signature,
+            adaptor) -> 'Privkey':
         _adaptor_signature = to_hex_string(adaptor_signature)
         _signature = to_hex_string(signature)
         _adaptor = to_hex_string(adaptor)
@@ -695,7 +726,7 @@ class SchnorrPubkey:
     # @retval [0] SchnorrPubkey
     # @retval [1] parity flag
     @classmethod
-    def from_privkey(cls, privkey) -> 'SchnorrPubkey':
+    def from_privkey(cls, privkey) -> Tuple['SchnorrPubkey', bool]:
         if isinstance(privkey, Privkey):
             _privkey = privkey.hex
         elif isinstance(privkey, str) and (len(privkey) != 64):
@@ -716,7 +747,7 @@ class SchnorrPubkey:
     # @retval [0] SchnorrPubkey
     # @retval [1] parity flag
     @classmethod
-    def from_pubkey(cls, pubkey) -> 'SchnorrPubkey':
+    def from_pubkey(cls, pubkey) -> Tuple['SchnorrPubkey', bool]:
         _pubkey = to_hex_string(pubkey)
         util = get_util()
         with util.create_handle() as handle:
@@ -733,7 +764,8 @@ class SchnorrPubkey:
     # @retval [1] tweaked parity flag
     # @retval [2] tweaked Privkey
     @classmethod
-    def add_tweak_from_privkey(cls, privkey, tweak) -> 'SchnorrPubkey':
+    def add_tweak_from_privkey(
+            cls, privkey, tweak) -> Tuple['SchnorrPubkey', bool, 'Privkey']:
         if isinstance(privkey, Privkey):
             _privkey = privkey.hex
         elif isinstance(privkey, str) and (len(privkey) != 64):
@@ -770,7 +802,7 @@ class SchnorrPubkey:
     # @param[in] tweak      tweak data
     # @retval [0] tweaked SchnorrPubkey
     # @retval [1] tweaked parity flag
-    def add_tweak(self, tweak) -> 'SchnorrPubkey':
+    def add_tweak(self, tweak) -> Tuple['SchnorrPubkey', bool]:
         _tweak = to_hex_string(tweak)
         util = get_util()
         with util.create_handle() as handle:

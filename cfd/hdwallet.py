@@ -4,8 +4,9 @@
 # @brief hdwallet function implements file.
 # @note Copyright 2020 CryptoGarage
 import typing
-from typing import List, Tuple, Union
-from .util import ByteData, CfdUtil, get_util, JobHandle, to_hex_string, CfdError
+from typing import List, Tuple, Union, Optional
+from .util import ByteData, CfdUtil, get_util, JobHandle,\
+    to_hex_string, CfdError
 from .key import Network, Privkey, Pubkey
 from enum import Enum
 import unicodedata
@@ -325,7 +326,7 @@ class ExtPrivkey(Extkey):
     # @param[in] number_list    bip32 number list
     # @return ExtPubkey
     def derive_pubkey(self, path: str = '', number: int = 0,
-                      number_list: typing.List[int] = []) -> 'ExtPrivkey':
+                      number_list: typing.List[int] = []) -> 'ExtPubkey':
         return self.derive(
             path=path,
             number=number,
@@ -590,9 +591,13 @@ class HDWallet:
     # @param[in] strict_check   strict check
     # @return HDWallet
     @classmethod
-    def from_mnemonic(
-            cls, mnemonic: Union[str, List[str]], language='en', passphrase: str = '',
-            network=Network.MAINNET, strict_check: bool = True) -> 'HDWallet':
+    def from_mnemonic(cls,
+                      mnemonic: Union[str,
+                                      List[str]],
+                      language='en',
+                      passphrase: str = '',
+                      network=Network.MAINNET,
+                      strict_check: bool = True) -> 'HDWallet':
         return HDWallet(
             mnemonic=mnemonic, language=language,
             passphrase=passphrase, network=network, strict_check=strict_check)
@@ -656,6 +661,100 @@ class HDWallet:
 
 
 ##
+# @class KeyData
+# @brief KeyData class.
+class KeyData:
+    ##
+    # @var pubkey
+    # pubkey
+    pubkey: 'Pubkey'
+    ##
+    # @var privkey
+    # privkey
+    privkey: Optional['Privkey'] = None
+    ##
+    # @var ext_pubkey
+    # ext pubkey
+    ext_pubkey: Optional['ExtPubkey'] = None
+    ##
+    # @var ext_privkey
+    # ext privkey
+    ext_privkey: Optional['ExtPrivkey'] = None
+    ##
+    # @var fingerprint
+    # fingerprint
+    fingerprint: Optional['ByteData'] = None
+    ##
+    # @var bip32_path
+    # bip32 path
+    bip32_path: str
+
+    ##
+    # @brief constructor.
+    # @param[in] key            key.
+    # @param[in] fingerprint    fingerprint or parent key.
+    # @param[in] bip32_path     bip32 path
+    def __init__(self,
+                 key: Union['Pubkey',
+                            'Privkey',
+                            'ExtPubkey',
+                            'ExtPrivkey'],
+                 fingerprint: Optional[Union['ByteData',
+                                             'Pubkey',
+                                             'Privkey',
+                                             'ExtPubkey',
+                                             'ExtPrivkey']],
+                 bip32_path: str = ''):
+        if isinstance(key, ExtPrivkey):
+            self.ext_privkey = key
+            self.privkey = self.ext_privkey.privkey
+            self.pubkey = self.privkey.pubkey
+        elif isinstance(key, ExtPubkey):
+            self.ext_pubkey = key
+            self.pubkey = self.ext_pubkey.pubkey
+        elif isinstance(key, Privkey):
+            self.privkey = key
+            self.pubkey = self.privkey.pubkey
+        elif isinstance(key, Pubkey):
+            self.pubkey = key
+        else:
+            raise CfdError(error_code=1, message='Error: Unsupported key.')
+
+        if isinstance(fingerprint, ByteData):
+            if len(fingerprint.hex) < 8:
+                raise CfdError(
+                    error_code=1, message='Error: fingerprint is low size.')
+            self.fingerprint = fingerprint
+        elif isinstance(fingerprint, ExtPrivkey):
+            self.fingerprint = fingerprint.privkey.pubkey.get_fingerprint()
+        elif isinstance(fingerprint, ExtPubkey) or isinstance(
+                fingerprint, Privkey):
+            self.fingerprint = fingerprint.pubkey.get_fingerprint()
+        elif isinstance(fingerprint, Pubkey):
+            self.fingerprint = fingerprint.get_fingerprint()
+        elif fingerprint is None:
+            pass
+        else:
+            raise CfdError(
+                error_code=1, message='Error: Unsupported fingerprint.')
+        self.bip32_path = str(bip32_path)
+
+    ##
+    # @brief get string.
+    # @return pubkey & bip32 data.
+    def __str__(self) -> str:
+        if (not self.fingerprint) or (not self.bip32_path):
+            return str(self.pubkey)
+        fp_str = to_hex_string(self.fingerprint)
+        if len(fp_str) < 8:
+            return str(self.pubkey)
+        path = self.bip32_path
+        path = path[1:] if path[0] == 'm' else path
+        path = path[1:] if path[0] == '/' else path
+        return f'[{fp_str}/{path}]{self.pubkey._hex}'
+
+
+##
 # All import target.
 __all__ = [
     'ExtKeyType',
@@ -664,6 +763,7 @@ __all__ = [
     'ExtPubkey',
     'MnemonicLanguage',
     'HDWallet',
+    'KeyData',
     'XPRIV_MAINNET_VERSION',
     'XPRIV_TESTNET_VERSION',
     'XPUB_MAINNET_VERSION',

@@ -219,6 +219,11 @@ def test_schnorr_func(obj, name, case, req, exp, error):
                 req['message'], req['nonce'], req['pubkey'],
                 is_message_hashed=req['isHashed'])
 
+        elif name == 'Schnorr.TweakAddPrivkey':
+            resp = ''
+            _pk, _parity, privkey = SchnorrPubkey.add_tweak_from_privkey(
+                req['privkey'], req['tweak'])
+
         else:
             raise Exception('unknown name: ' + name)
         assert_error(obj, name, case, error)

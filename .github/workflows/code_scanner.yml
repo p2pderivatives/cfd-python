@@ -7,6 +7,13 @@ on:
     - develop
     - features/sprint*
     - feature/code_scanning
+    paths:
+    - '**.py'
+    - '**.cpp'
+    - '**.h'
+    - '**/CMakeLists.txt'
+    - '**/code_scanner.yml'
+    - '**/external_project_local_setting.config'
   pull_request:
     branches:
     - master

@@ -73,7 +73,11 @@ PYTHON_PARAM_LIST = [
     ['uint64_t', 'c_uint64'],
     ['uint64_t*', 'c_uint64_p'],
     ['unsigned char', 'c_ubyte'],
+    ['uint8_t', 'c_uint8'],
+    ['uint8_t*', 'c_uint8_p'],
     ['double', 'c_double'],
+    ['CfdPsbtRecordType', 'c_int'],
+    ['CfdPsbtRecordKind', 'c_int'],
 ]
 
 

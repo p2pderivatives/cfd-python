@@ -3,7 +3,7 @@
 # @file confidential_transaction.py
 # @brief elements confidential transaction function implements file.
 # @note Copyright 2020 CryptoGarage
-from typing import AnyStr, Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 import typing
 from .util import ReverseByteData, CfdError, JobHandle,\
     CfdErrorCode, to_hex_string, get_util, ByteData
@@ -54,14 +54,14 @@ class BlindFactor(ReverseByteData):
         super().__init__(data)
         if len(self.hex) != 64:
             raise CfdError(
-                error_code=1, message=f'Error: Invalid blind factor.')
+                error_code=1, message='Error: Invalid blind factor.')
 
     ##
     # @brief check empty.
     # @retval True   empty
     # @retval False  not empty
     def is_empty(self):
-        return True if self.hex == '0'*64 else False
+        return True if self.hex == '0' * 64 else False
 
 
 ##
@@ -341,7 +341,7 @@ class ElementsUtxoData(UtxoData):
     # @brief equal method.
     # @param[in] other      other object.
     # @return true or false.
-    def __eq__(self, other: 'ElementsUtxoData') -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, ElementsUtxoData):
             return NotImplemented
         return self.outpoint == other.outpoint
@@ -359,7 +359,7 @@ class ElementsUtxoData(UtxoData):
     # @brief equal method.
     # @param[in] other      other object.
     # @return true or false.
-    def __ne__(self, other: 'ElementsUtxoData') -> bool:
+    def __ne__(self, other: object) -> bool:
         return not self.__eq__(other)
 
     ##
@@ -391,7 +391,7 @@ class UnblindData:
     ##
     # @var asset
     # asset
-    asset: Union[AnyStr, 'ConfidentialAsset']
+    asset: Union[str, 'ConfidentialAsset']
     ##
     # @var value
     # value
@@ -544,7 +544,8 @@ class Issuance:
     # @brief get string.
     # @return hex
     def __str__(self) -> str:
-        return '{},{},{}'.format(str(self.entropy), self.asset_value, self.token_value)
+        return '{},{},{}'.format(
+            str(self.entropy), self.asset_value, self.token_value)
 
 
 ##
@@ -621,11 +622,11 @@ class ConfidentialTxOut(TxOut):
     ##
     # @var surjectionproof
     # surjection proof
-    surjectionproof: Union[List[int], AnyStr, 'ByteData']
+    surjectionproof: Union[List[int], str, 'ByteData']
     ##
     # @var rangeproof
     # range proof
-    rangeproof: Union[List[int], AnyStr, 'ByteData']
+    rangeproof: Union[List[int], str, 'ByteData']
 
     ##
     # @brief get destroy amount txout.
@@ -686,9 +687,9 @@ class ConfidentialTxOut(TxOut):
     # @param[in] network   network
     # @param[in] is_confidential  Returns Confidential Address if possible.
     # @return address.
-    def get_address(self, network=Network.LIQUID_V1,
-                    is_confidential: bool = False,
-                    ) -> Union['Address', 'ConfidentialAddress']:
+    def _get_address(self, network=Network.LIQUID_V1,
+                     is_confidential: bool = False,
+                     ) -> Union['Address', 'ConfidentialAddress', None]:
         _network = Network.get(network)
         if _network not in [Network.LIQUID_V1, Network.ELEMENTS_REGTEST]:
             raise CfdError(error_code=1,
@@ -701,15 +702,36 @@ class ConfidentialTxOut(TxOut):
                 ca = ConfidentialAddress.parse(self.address)
                 return ca if is_confidential else ca.address
             addr = AddressUtil.parse(self.address)
-        if addr is None:
+        if (addr is None) and ((is_confidential is False) or (
+                len(self.locking_script.hex) > 0)):
             addr = AddressUtil.from_locking_script(
                 self.locking_script, _network)
 
         if self.has_blind() or self.nonce.is_empty() or (
-                not is_confidential):
+                not is_confidential) or (addr is None):
             return addr
         else:
             return ConfidentialAddress(addr, Pubkey(self.nonce))
+
+    ##
+    # @brief get address.
+    # @param[in] network   network
+    # @return address.
+    def get_address(self, network=Network.LIQUID_V1) -> 'Address':
+        ret = self._get_address(network, False)
+        if isinstance(ret, Address):
+            return ret
+        raise CfdError(error_code=-2, message='Error: Internal error.')
+
+    ##
+    # @brief get confidential address.
+    # @param[in] network   network
+    # @return address.
+    def get_confidential_address(
+            self,
+            network=Network.LIQUID_V1) -> Optional['ConfidentialAddress']:
+        addr = self._get_address(network, True)
+        return addr if isinstance(addr, ConfidentialAddress) else None
 
 
 ##
@@ -734,8 +756,12 @@ class TargetAmountData:
     # @param[in] amount             amount
     # @param[in] asset              asset
     # @param[in] reserved_address   reserved address
-    def __init__(self, amount: int, asset,
-                 reserved_address: Union[str, 'Address', 'ConfidentialAddress'] = ''):
+    def __init__(self,
+                 amount: int,
+                 asset,
+                 reserved_address: Union[str,
+                                         'Address',
+                                         'ConfidentialAddress'] = ''):
         self.amount = amount
         self.asset = ConfidentialAsset(asset)
         if isinstance(reserved_address, Address) or \
@@ -909,7 +935,10 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] enable_cache   enable tx cache
     # @return transaction object
     @classmethod
-    def from_hex(cls, hex, enable_cache: bool = True) -> 'ConfidentialTransaction':
+    def from_hex(
+            cls,
+            hex,
+            enable_cache: bool = True) -> 'ConfidentialTransaction':
         return ConfidentialTransaction(hex, enable_cache)
 
     ##
@@ -1002,27 +1031,35 @@ class ConfidentialTransaction(_TransactionBase):
     ##
     # @brief update transaction input.
     # @param[in] outpoint       outpoint
+    # @param[in] handle         cfd handle
+    # @param[in] tx_handle      tx handle
+    # @return void
+    def _update_txin_internal(self, handle, tx_handle, outpoint: 'OutPoint'):
+        if self.enable_cache is False:
+            return
+        util = get_util()
+        self.txid, self.wtxid, self.wit_hash, self.size, self.vsize,\
+            self.weight, self.version, self.locktime = util.call_func(
+                'CfdGetConfidentialTxInfoByHandle',
+                handle.get_handle(), tx_handle.get_handle())
+        self.txid = Txid(self.txid)
+        self.wtxid = Txid(self.wtxid)
+        # update txin
+        txin, index = self._get_txin(
+            handle, tx_handle, outpoint=outpoint)
+        self.txin_list[index] = txin
+
+    ##
+    # @brief update transaction input.
+    # @param[in] outpoint       outpoint
     # @return void
     def _update_txin(self, outpoint: 'OutPoint'):
         if self.enable_cache is False:
             return
         util = get_util()
-        with util.create_handle() as handle:
-            _tx_handle = util.call_func(
-                'CfdInitializeTxDataHandle', handle.get_handle(),
-                self.NETWORK, self.hex)
-            with JobHandle(handle, _tx_handle,
-                           self.FREE_FUNC_NAME) as tx_handle:
-                self.txid, self.wtxid, self.wit_hash, self.size, self.vsize,\
-                    self.weight, self.version, self.locktime = util.call_func(
-                        'CfdGetConfidentialTxInfoByHandle',
-                        handle.get_handle(), tx_handle.get_handle())
-                self.txid = Txid(self.txid)
-                self.wtxid = Txid(self.wtxid)
-                # update txin
-                txin, index = self._get_txin(
-                    handle, tx_handle, outpoint=outpoint)
-                self.txin_list[index] = txin
+        with util.create_handle() as handle, super()._get_handle(
+                handle, self.network) as tx_handle:
+            self._update_txin_internal(handle, tx_handle, outpoint)
 
     ##
     # @brief get transaction all data.
@@ -1058,22 +1095,17 @@ class ConfidentialTransaction(_TransactionBase):
             return txout_list
 
         util = get_util()
-        with util.create_handle() as handle:
-            _tx_handle = util.call_func(
-                'CfdInitializeTxDataHandle', handle.get_handle(),
-                self.NETWORK, self.hex)
-            with JobHandle(
-                    handle, _tx_handle,
-                    self.FREE_FUNC_NAME) as tx_handle:
-                self.txid, self.wtxid, self.wit_hash, self.size, self.vsize,\
-                    self.weight, self.version, self.locktime = util.call_func(
-                        'CfdGetConfidentialTxInfoByHandle',
-                        handle.get_handle(), tx_handle.get_handle())
-                self.txid = Txid(self.txid)
-                self.wtxid = Txid(self.wtxid)
-                self.txin_list = get_txin_list(handle, tx_handle)
-                self.txout_list = get_txout_list(handle, tx_handle)
-                return self.txin_list, self.txout_list
+        with util.create_handle() as handle, super()._get_handle(
+                handle, self.network) as tx_handle:
+            self.txid, self.wtxid, self.wit_hash, self.size, self.vsize,\
+                self.weight, self.version, self.locktime = util.call_func(
+                    'CfdGetConfidentialTxInfoByHandle',
+                    handle.get_handle(), tx_handle.get_handle())
+            self.txid = Txid(self.txid)
+            self.wtxid = Txid(self.wtxid)
+            self.txin_list = get_txin_list(handle, tx_handle)
+            self.txout_list = get_txout_list(handle, tx_handle)
+            return self.txin_list, self.txout_list
 
     ##
     # @brief get transaction output fee index.
@@ -1136,38 +1168,34 @@ class ConfidentialTransaction(_TransactionBase):
     def add(self, txins: List['ConfidentialTxIn'],
             txouts: List['ConfidentialTxOut']) -> None:
         util = get_util()
-        with util.create_handle() as handle:
-            _tx_handle = util.call_func(
-                'CfdInitializeTransaction', handle.get_handle(),
-                self.NETWORK, 0, 0, self.hex)
-            with JobHandle(
-                    handle, _tx_handle, self.FREE_FUNC_NAME) as tx_handle:
-                for txin in txins:
-                    sec = TxIn.get_sequence_number(
-                        self.locktime, txin.sequence)
-                    util.call_func(
-                        'CfdAddTransactionInput', handle.get_handle(),
-                        tx_handle.get_handle(), str(txin.outpoint.txid),
-                        txin.outpoint.vout, sec)
-                for txout in txouts:
-                    util.call_func(
-                        'CfdAddConfidentialTxOutput',
-                        handle.get_handle(),
-                        tx_handle.get_handle(), txout.amount,
-                        str(txout.address),
-                        str(txout.locking_script),
-                        str(txout.asset), str(txout.nonce))
-                self.hex = util.call_func(
-                    'CfdFinalizeTransaction', handle.get_handle(),
-                    tx_handle.get_handle())
-                self.txid, self.wtxid, self.wit_hash, self.size, self.vsize,\
-                    self.weight, self.version, self.locktime = util.call_func(
-                        'CfdGetConfidentialTxInfoByHandle',
-                        handle.get_handle(), tx_handle.get_handle())
-                self.txid = Txid(self.txid)
-                self.wtxid = Txid(self.wtxid)
-                self.txin_list += copy.deepcopy(txins)
-                self.txout_list += copy.deepcopy(txouts)
+        with util.create_handle() as handle, super()._get_handle(
+                handle, self.network) as tx_handle:
+            for txin in txins:
+                sec = TxIn.get_sequence_number(
+                    self.locktime, txin.sequence)
+                util.call_func(
+                    'CfdAddTransactionInput', handle.get_handle(),
+                    tx_handle.get_handle(), str(txin.outpoint.txid),
+                    txin.outpoint.vout, sec)
+            for txout in txouts:
+                util.call_func(
+                    'CfdAddConfidentialTxOutput',
+                    handle.get_handle(),
+                    tx_handle.get_handle(), txout.amount,
+                    str(txout.address),
+                    str(txout.locking_script),
+                    str(txout.asset), str(txout.nonce))
+            self.hex = util.call_func(
+                'CfdFinalizeTransaction', handle.get_handle(),
+                tx_handle.get_handle())
+            self.txid, self.wtxid, self.wit_hash, self.size, self.vsize,\
+                self.weight, self.version, self.locktime = util.call_func(
+                    'CfdGetConfidentialTxInfoByHandle',
+                    handle.get_handle(), tx_handle.get_handle())
+            self.txid = Txid(self.txid)
+            self.wtxid = Txid(self.wtxid)
+            self.txin_list += copy.deepcopy(txins)
+            self.txout_list += copy.deepcopy(txouts)
 
     ##
     # @brief update transaction output amount.
@@ -1231,9 +1259,10 @@ class ConfidentialTransaction(_TransactionBase):
         issuance_key_map={},
         confidential_address_list=[],
         direct_confidential_key_map={},
-        minimum_range_value: int = 1, exponent: int = 0, minimum_bits: int = -1,
-        collect_blinder: bool = False,
-    ) -> List[Union['BlindData', 'IssuanceAssetBlindData', 'IssuanceTokenBlindData']]:
+        minimum_range_value: int = 1, exponent: int = 0,
+        minimum_bits: int = -1, collect_blinder: bool = False,
+    ) -> List[Union['BlindData', 'IssuanceAssetBlindData',
+                    'IssuanceTokenBlindData']]:
         if minimum_bits == -1:
             minimum_bits = self.DEFAULT_BLIND_MINIMUM_BITS
 
@@ -1292,7 +1321,8 @@ class ConfidentialTransaction(_TransactionBase):
                     'CfdFinalizeBlindTx', handle.get_handle(),
                     tx_handle.get_handle(), self.hex)
                 self._update_tx_all()
-                blinder_list = []
+                blinder_list: List[Union['BlindData', 'IssuanceAssetBlindData',
+                                         'IssuanceTokenBlindData']] = []
                 if bool(collect_blinder):
                     try:
                         i = 0
@@ -1346,7 +1376,7 @@ class ConfidentialTransaction(_TransactionBase):
     # @retval [0]   asset unblind data
     # @retval [1]   token unblind data
     def unblind_issuance(self, index: int, asset_key,
-                         token_key='') -> 'UnblindData':
+                         token_key='') -> Tuple['UnblindData', 'UnblindData']:
         util = get_util()
         with util.create_handle() as handle:
             asset, asset_amount, asset_blinder, amount_blinder, token,\
@@ -1392,8 +1422,14 @@ class ConfidentialTransaction(_TransactionBase):
     # @param[in] redeem_script  redeem script
     # @param[in] sighashtype    sighash type
     # @return sighash
-    def get_sighash(self, outpoint: 'OutPoint', hash_type, value, pubkey='',
-                    redeem_script='', sighashtype=SigHashType.ALL) -> 'ByteData':
+    def get_sighash(
+            self,
+            outpoint: 'OutPoint',
+            hash_type,
+            value,
+            pubkey='',
+            redeem_script='',
+            sighashtype=SigHashType.ALL) -> 'ByteData':
         _hash_type = HashType.get(hash_type)
         _pubkey = to_hex_string(pubkey)
         _script = to_hex_string(redeem_script)
@@ -1684,7 +1720,8 @@ class ConfidentialTransaction(_TransactionBase):
             long_term_fee_rate: float = -1.0,
             dust_fee_rate: float = -1.0,
             knapsack_min_change: int = -1, is_blind: bool = True,
-            exponent: int = 0, minimum_bits: int = 52) -> typing.Tuple[int, List[str]]:
+            exponent: int = 0,
+            minimum_bits: int = 52) -> typing.Tuple[int, List[str]]:
         util = get_util()
 
         def set_opt(handle, tx_handle, key, i_val=0, f_val=0, b_val=False):

@@ -3,7 +3,7 @@
 # @file script.py
 # @brief bitcoin script function implements file.
 # @note Copyright 2020 CryptoGarage
-from typing import List
+from typing import List, Union
 from .util import CfdError, to_hex_string, get_util, JobHandle
 from .key import SignParameter, SigHashType
 from enum import Enum
@@ -31,6 +31,12 @@ class HashType(Enum):
     ##
     # HashType: p2sh-p2wpkh
     P2SH_P2WPKH = 6
+    ##
+    # HashType: taproot
+    TAPROOT = 7
+    ##
+    # HashType: unknown
+    UNKNOWN = 255
 
     ##
     # @brief get string.
@@ -89,7 +95,7 @@ class Script:
     # @param[in] script_items  asm strings (list or string)
     # @return script object
     @classmethod
-    def from_asm(cls, script_items: List[str]) -> 'Script':
+    def from_asm(cls, script_items: Union[List[str], str]) -> 'Script':
         _asm = script_items
         if isinstance(script_items, list):
             _asm = ' '.join(script_items)
@@ -115,11 +121,11 @@ class Script:
         _script = to_hex_string(redeem_script)
         util = get_util()
         with util.create_handle() as handle:
-            word_handle = util.call_func(
+            work_handle = util.call_func(
                 'CfdInitializeMultisigScriptSig', handle.get_handle())
             with JobHandle(
                     handle,
-                    word_handle,
+                    work_handle,
                     'CfdFreeMultisigScriptSigHandle') as script_handle:
                 for param in sign_parameter_list:
                     if isinstance(param, SignParameter) is False:
@@ -163,19 +169,22 @@ class Script:
         return self.hex
 
     ##
-    # @brief create multisig scriptsig.
+    # @brief parse script.
     # @param[in] script     script
     # @return script asm
     @classmethod
     def _parse(cls, script):
         util = get_util()
         script_list = []
+        if not script:
+            return ''
+
         with util.create_handle() as handle:
-            word_handle, max_index = util.call_func(
+            work_handle, max_index = util.call_func(
                 'CfdParseScript', handle.get_handle(), script)
             with JobHandle(
                     handle,
-                    word_handle,
+                    work_handle,
                     'CfdFreeScriptItemHandle') as script_handle:
                 for i in range(max_index):
                     item = util.call_func(
