@@ -3,10 +3,11 @@
 # @file address.py
 # @brief address function implements file.
 # @note Copyright 2020 CryptoGarage
-import typing
+from typing import Union, Optional, List
 from .util import get_util, CfdError, JobHandle, to_hex_string
-from .key import Network, Pubkey
+from .key import Network, Pubkey, SchnorrPubkey
 from .script import HashType, Script
+from .taproot import TaprootScriptTree
 
 
 ##
@@ -20,19 +21,19 @@ class Address:
     ##
     # @var locking_script
     # locking script (scriptPubkey)
-    locking_script: typing.Union[str, 'Script']
+    locking_script: Union[str, 'Script']
     ##
     # @var pubkey
     # pubkey for pubkey hash.
-    pubkey: typing.Union[str, 'Pubkey']
+    pubkey: Union[str, 'Pubkey', 'SchnorrPubkey']
     ##
     # @var redeem_script
     # redeem script for script hash.
-    redeem_script: typing.Union[str, 'Script']
+    redeem_script: Union[str, 'Script']
     ##
     # @var p2sh_wrapped_script
     # witness locking script for p2sh.
-    p2sh_wrapped_script: typing.Union[str, 'Script']
+    p2sh_wrapped_script: Union[str, 'Script']
     ##
     # @var hash_type
     # hash type.
@@ -45,6 +46,10 @@ class Address:
     # @var witness_version
     # witness version.
     witness_version: int
+    ##
+    # @var taproot_script_tree
+    # Taproot script tree.
+    taproot_script_tree: Optional['TaprootScriptTree'] = None
 
     ##
     # @brief constructor.
@@ -70,19 +75,28 @@ class Address:
         self.address = address
         self.locking_script = _locking_script if len(
             _locking_script) == 0 else Script(locking_script)
-        self.pubkey = _pubkey if len(_pubkey) == 0 else Pubkey(pubkey)
+        if len(_pubkey) == 0:
+            self.pubkey = _pubkey
+        elif hash_type == HashType.TAPROOT:
+            self.pubkey = SchnorrPubkey(pubkey)
+        else:
+            self.pubkey = Pubkey(pubkey)
         self.redeem_script = _redeem_script if len(
             _redeem_script) == 0 else Script(redeem_script)
         self.p2sh_wrapped_script = p2sh_wrapped_script
         self.hash_type = HashType.get(hash_type)
         self.network = Network.get(network)
         self.witness_version = -1
+        self.taproot_script_tree = None
         if p2sh_wrapped_script and len(p2sh_wrapped_script) > 2:
-            if int(_locking_script[0:2], 16) < 16:
-                self.witness_version = int(p2sh_wrapped_script[0:2])
+            if int(p2sh_wrapped_script[0:2], 16) == 0:
+                self.witness_version = 0
         elif len(_locking_script) > 2:
-            if int(_locking_script[0:2], 16) < 16:
-                self.witness_version = int(_locking_script[0:2])
+            ver = int(_locking_script[0:2], 16)
+            if ver > 80:
+                ver -= 80
+            if ver <= 16:
+                self.witness_version = ver
 
     ##
     # @brief get string.
@@ -104,9 +118,8 @@ class AddressUtil:
     def parse(cls, address, hash_type=HashType.P2WPKH) -> 'Address':
         util = get_util()
         with util.create_handle() as handle:
-            network, _hash_type, _witness_version,\
-                locking_script, _ = util.call_func(
-                    'CfdGetAddressInfo', handle.get_handle(), str(address))
+            network, _hash_type, _, locking_script, _ = util.call_func(
+                'CfdGetAddressInfo', handle.get_handle(), str(address))
             _hash_type = HashType.get(_hash_type)
             try:
                 if _hash_type == HashType.P2SH:
@@ -183,6 +196,31 @@ class AddressUtil:
             redeem_script, HashType.P2SH_P2WSH, network)
 
     ##
+    # @brief get taproot address.
+    # @param[in] pubkey     schnorr public key
+    #   (or taproot script tree contain internal pubkey)
+    # @param[in] network    network
+    # @param[in] script_tree    taproot script tree
+    # @return address object.
+    @classmethod
+    def taproot(
+            cls, pubkey: Union['SchnorrPubkey', 'TaprootScriptTree'],
+            network=Network.MAINNET,
+            script_tree: Optional['TaprootScriptTree'] = None) -> 'Address':
+        if isinstance(pubkey, TaprootScriptTree):
+            pk, _, _, _ = pubkey.get_taproot_data()
+            addr = cls.from_pubkey_hash(pk, HashType.TAPROOT, network)
+            addr.taproot_script_tree = script_tree
+            return addr
+        elif isinstance(script_tree, TaprootScriptTree):
+            pk, _, _, _ = script_tree.get_taproot_data(pubkey)
+            addr = cls.from_pubkey_hash(pk, HashType.TAPROOT, network)
+            addr.taproot_script_tree = script_tree
+            return addr
+        else:
+            return cls.from_pubkey_hash(pubkey, HashType.TAPROOT, network)
+
+    ##
     # @brief get pubkey hash address.
     # @param[in] pubkey           public key
     # @param[in] hash_type        hash type
@@ -208,7 +246,7 @@ class AddressUtil:
                 locking_script,
                 hash_type=_hash_type,
                 network=_network,
-                pubkey=Pubkey(_pubkey),
+                pubkey=_pubkey,
                 p2sh_wrapped_script=segwit_locking_script)
 
     ##
@@ -265,12 +303,12 @@ class AddressUtil:
         _network = Network.get(network)
         util = get_util()
         with util.create_handle() as handle:
-            word_handle = util.call_func(
+            work_handle = util.call_func(
                 'CfdInitializeMultisigScript', handle.get_handle(),
                 _network.value, _hash_type.value)
             with JobHandle(
                     handle,
-                    word_handle,
+                    work_handle,
                     'CfdFreeMultisigScriptHandle') as addr_handle:
                 for pubkey in pubkey_list:
                     util.call_func(
@@ -325,19 +363,19 @@ class AddressUtil:
             cls,
             redeem_script,
             hash_type,
-            network=Network.MAINNET) -> typing.List['Address']:
+            network=Network.MAINNET) -> List['Address']:
         _script = str(redeem_script)
         _hash_type = HashType.get(hash_type)
         _network = Network.get(network)
         util = get_util()
         addr_list = []
         with util.create_handle() as handle:
-            word_handle, max_index = util.call_func(
+            work_handle, max_index = util.call_func(
                 'CfdGetAddressesFromMultisig', handle.get_handle(),
                 _script, _network.value, _hash_type.value)
             with JobHandle(
                     handle,
-                    word_handle,
+                    work_handle,
                     'CfdFreeAddressesMultisigHandle') as addr_handle:
                 for i in range(max_index):
                     addr, pubkey = util.call_func(

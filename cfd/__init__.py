@@ -12,10 +12,13 @@ __all__ = [
 'address',
 'confidential_address',
 'confidential_transaction',
+'crypto',
 'descriptor',
 'hdwallet',
 'key',
+'psbt',
 'script',
 'transaction',
+'taproot',
 'util'
 """

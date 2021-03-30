@@ -3,7 +3,6 @@
 # @file confidential_address.py
 # @brief elements confidential address function implements file.
 # @note Copyright 2020 CryptoGarage
-import typing
 from .address import Address, AddressUtil
 from .key import Pubkey
 from .util import get_util, to_hex_string, CfdError

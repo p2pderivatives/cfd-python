@@ -1,5 +1,65 @@
 from unittest import TestCase
+from tests.util import load_json_file,\
+    exec_test, assert_equal, assert_error
 from cfd.util import ByteData, CfdError
+from cfd.crypto import CryptoUtil, HashUtil
+
+
+def test_crypto_func(obj, name, case, req, exp, error):
+    try:
+        if name == 'Base58.Encode':
+            resp = CryptoUtil.encode_base58(req['hex'], req['hasChecksum'])
+        elif name == 'Base58.Decode':
+            resp = CryptoUtil.decode_base58(req['data'], req['hasChecksum'])
+        elif name == 'Base64.Encode':
+            resp = CryptoUtil.encode_base64(req['hex'])
+        elif name == 'Base64.Decode':
+            resp = CryptoUtil.decode_base64(req['base64'])
+        elif name == 'AES.Encode':
+            resp = CryptoUtil.encrypto_aes(
+                req['key'], req['data'], req.get('iv', None))
+        elif name == 'AES.Decode':
+            resp = CryptoUtil.decrypto_aes(
+                req['key'], req['data'], req.get('iv', None))
+        elif name == 'Hash.Hash256':
+            resp = HashUtil.hash256(req['message'], req['hasText'])
+        elif name == 'Hash.Hash160':
+            resp = HashUtil.hash160(req['message'], req['hasText'])
+        elif name == 'Hash.Sha256':
+            resp = HashUtil.sha256(req['message'], req['hasText'])
+        elif name == 'Hash.Ripemd160':
+            resp = HashUtil.ripemd160(req['message'], req['hasText'])
+        else:
+            raise Exception('unknown name: ' + name)
+        assert_error(obj, name, case, error)
+
+        assert_equal(obj, name, case, exp, str(resp), 'hex')
+        assert_equal(obj, name, case, exp, str(resp), 'base64')
+        assert_equal(obj, name, case, exp, str(resp), 'data')
+
+    except CfdError as err:
+        if not error:
+            print('{}:{} req={}'.format(name, case, req))
+            raise err
+        assert_equal(obj, name, case, exp, err.message)
+    return True
+
+
+class TestCrypto(TestCase):
+    def setUp(self):
+        self.test_list = load_json_file('common_test.json')
+
+    def test_base58(self):
+        exec_test(self, 'Base58', test_crypto_func)
+
+    def test_base64(self):
+        exec_test(self, 'Base64', test_crypto_func)
+
+    def test_hash(self):
+        exec_test(self, 'Hash', test_crypto_func)
+
+    def test_aes(self):
+        exec_test(self, 'AES', test_crypto_func)
 
 
 class TestByteData(TestCase):

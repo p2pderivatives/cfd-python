@@ -6,9 +6,28 @@ from cfd.hdwallet import ExtPrivkey
 from cfd.address import AddressUtil
 from cfd.descriptor import parse_descriptor
 from cfd.script import HashType
-from cfd.key import Network, SigHashType, SignParameter
-from cfd.transaction import OutPoint, TxIn, TxOut, Transaction, Txid, UtxoData
+from cfd.key import Network, SigHashType, SignParameter, SchnorrUtil
+from cfd.transaction import OutPoint, TxIn, TxOut, Transaction, Txid, \
+    UtxoData, CODE_SEPARATOR_POSITION_FINAL
 import json
+
+
+def load_utxo_list(request):
+    result = []
+    utxos = request.get('utxos', [])
+    for utxo in utxos:
+        desc = utxo.get('descriptor', '')
+        if not desc:
+            if 'address' in utxo:
+                addr = utxo['address']
+                desc = f'addr({addr})'
+            if 'lockingScript' in utxo:
+                script = utxo['lockingScript']
+                desc = f'raw({script})'
+        data = UtxoData(txid=utxo['txid'], vout=utxo['vout'],
+                        amount=utxo['amount'], descriptor=desc)
+        result.append(data)
+    return result
 
 
 def test_transaction_func1(obj, name, case, req, exp, error):
@@ -74,6 +93,7 @@ def test_transaction_func2(obj, name, case, req, exp, error):
         if 'txin' in req:
             txin = req['txin']
         if name == 'Transaction.SignWithPrivkey':
+            utxos = load_utxo_list(req)
             _sighashtype = SigHashType.get(
                 txin.get('sighashType', 'all'),
                 txin.get('sighashAnyoneCanPay', False))
@@ -82,12 +102,16 @@ def test_transaction_func2(obj, name, case, req, exp, error):
                 txin['hashType'],
                 txin['privkey'],
                 amount=txin.get('amount', 0),
-                sighashtype=_sighashtype)
+                sighashtype=_sighashtype,
+                grind_r=txin.get('isGrindR', True),
+                utxos=utxos,
+                aux_rand=txin.get('auxRand', None),
+                annex=txin.get('annex', None))
         elif name == 'Transaction.AddSign':
             hash_type = HashType.P2SH
             if txin.get('isWitness', True):
                 hash_type = HashType.P2WSH
-            for param in txin.get('signParam', []):
+            for param in txin.get('signParams', []):
                 _sighashtype = SigHashType.get(
                     param.get('sighashType', 'all'),
                     param.get('sighashAnyoneCanPay', False))
@@ -136,7 +160,7 @@ def test_transaction_func2(obj, name, case, req, exp, error):
 
         elif name == 'Transaction.AddScriptHashSign':
             signature_list = []
-            for param in txin.get('signParam', []):
+            for param in txin.get('signParams', []):
                 _sighashtype = SigHashType.get(
                     param.get('sighashType', 'all'),
                     param.get('sighashAnyoneCanPay', False))
@@ -157,8 +181,40 @@ def test_transaction_func2(obj, name, case, req, exp, error):
             if 'multisig p2wsh' == case:
                 print(str(resp))
 
+        elif name == 'Transaction.AddTaprootSchnorrSign':
+            _sighashtype = SigHashType.get(
+                txin.get('sighashType', 'default'),
+                txin.get('sighashAnyoneCanPay', False))
+            resp.add_taproot_sign(
+                OutPoint(txin['txid'], txin['vout']),
+                signature=txin['signature'],
+                sighashtype=_sighashtype,
+                annex=txin.get('annex', None))
+
+        elif name == 'Transaction.AddTapscriptSign':
+            signature_list = []
+            for param in txin.get('signParams', []):
+                _sighashtype = SigHashType.get(
+                    param.get('sighashType', 'default'),
+                    param.get('sighashAnyoneCanPay', False))
+                try:
+                    sign = SignParameter(
+                        param['hex'],
+                        sighashtype=_sighashtype, use_der_encode=False)
+                    signature_list.append(sign)
+                except CfdError:
+                    signature_list.append(param['hex'])
+
+            resp.add_tapscript_sign(
+                OutPoint(txin['txid'], txin['vout']),
+                signature_list=signature_list,
+                tapscript=txin['tapscript'],
+                control_block=txin['controlBlock'],
+                annex=txin.get('annex', None))
+
         elif name == 'Transaction.VerifySign':
             err_list = []
+            utxos = load_utxo_list(req)
             for txin in req.get('txins', []):
                 hash_type = HashType.P2WPKH
                 addr = txin.get('address', '')
@@ -174,7 +230,7 @@ def test_transaction_func2(obj, name, case, req, exp, error):
                 try:
                     resp.verify_sign(
                         OutPoint(txin['txid'], txin['vout']),
-                        addr, hash_type, txin.get('amount', 0))
+                        addr, hash_type, txin.get('amount', 0), utxos)
                 except CfdError as err:
                     _dict = {'txid': txin['txid'], 'vout': txin['vout']}
                     _dict['reason'] = err.message
@@ -184,14 +240,38 @@ def test_transaction_func2(obj, name, case, req, exp, error):
             resp = {'success': success, 'failTxins': err_list}
 
         elif name == 'Transaction.VerifySignature':
-            resp = resp.verify_signature(
-                OutPoint(txin['txid'], txin['vout']),
-                signature=txin.get('signature', ''),
-                hash_type=txin['hashType'],
-                amount=txin.get('amount', 0),
-                pubkey=txin['pubkey'],
-                redeem_script=txin.get('redeemScript', ''),
-                sighashtype=txin.get('sighashType', 'all'))
+            if txin['hashType'] == 'taproot':
+                utxos = load_utxo_list(req)
+                txin = req['txin']
+                script = txin.get('redeemScript', '')
+                pubkey = txin['pubkey'] if not script else ''
+                _sighashtype = SigHashType.get(
+                    txin.get('sighashType', 'all'),
+                    txin.get('sighashAnyoneCanPay', False))
+                sighash = resp.get_sighash(
+                    OutPoint(txin['txid'], txin['vout']),
+                    txin['hashType'],
+                    amount=txin.get('amount', 0),
+                    pubkey=pubkey,
+                    redeem_script=script,
+                    sighashtype=_sighashtype,
+                    utxos=utxos,
+                    tapleaf_hash=txin.get('', ''),
+                    annex=txin.get('annex', None),
+                    codeseparator_pos=txin.get('codeSeparatorPosition',
+                                               CODE_SEPARATOR_POSITION_FINAL))
+                resp = SchnorrUtil.verify(txin.get('signature', ''), sighash,
+                                          txin['pubkey'],
+                                          is_message_hashed=True)
+            else:
+                resp = resp.verify_signature(
+                    OutPoint(txin['txid'], txin['vout']),
+                    signature=txin.get('signature', ''),
+                    hash_type=txin['hashType'],
+                    amount=txin.get('amount', 0),
+                    pubkey=txin['pubkey'],
+                    redeem_script=txin.get('redeemScript', ''),
+                    sighashtype=txin.get('sighashType', 'all'))
 
         else:
             return False
@@ -229,8 +309,9 @@ def test_transaction_func3(obj, name, case, req, exp, error):
         if name == 'Transaction.Decode':
             resp = Transaction.parse_to_json(
                 req.get('hex', ''), req.get('network', 'mainnet'))
-        elif name == 'Transaction.CreateSighash':
+        elif name in ['Transaction.CreateSighash', 'Transaction.GetSighash']:
             resp = Transaction.from_hex(req['tx'])
+            utxos = load_utxo_list(req)
             txin = req['txin']
             key_data = txin['keyData']
             pubkey = key_data['hex'] if key_data['type'] == 'pubkey' else ''
@@ -244,7 +325,13 @@ def test_transaction_func3(obj, name, case, req, exp, error):
                 amount=txin.get('amount', 0),
                 pubkey=pubkey,
                 redeem_script=script,
-                sighashtype=_sighashtype)
+                sighashtype=_sighashtype,
+                utxos=utxos,
+                tapleaf_hash=txin.get('', ''),
+                annex=txin.get('annex', None),
+                codeseparator_pos=txin.get('codeSeparatorPosition',
+                                           CODE_SEPARATOR_POSITION_FINAL))
+
         elif name == 'Transaction.GetWitnessStackNum':
             resp = Transaction.from_hex(req['tx'])
             txin = req['txin']
@@ -341,6 +428,8 @@ def test_bitcoin_tx_func(obj, name, case, req, exp, error):
             assert_equal(obj, name, case, exp, txout_fee, 'txoutFeeAmount')
             assert_equal(obj, name, case, exp, utxo_fee, 'utxoFeeAmount')
         elif name == 'Bitcoin.FundTransaction':
+            if resp['hex'] != exp['hex']:
+                print(resp['hex'])
             assert_equal(obj, name, case, exp, resp['hex'], 'hex')
             assert_equal(obj, name, case, exp, resp['feeAmount'], 'feeAmount')
             exp_addr_list = exp['usedAddresses']
@@ -501,12 +590,6 @@ class TestTransaction(TestCase):
             "0200000000010201000000000000000000000000000000000000000000000000000000000000000200000000ffffffff01000000000000000000000000000000000000000000000000000000000000000300000000ffffffff0310270000000000001600148b756cbd98f4f55e985f80437a619d47f0732a941027000000000000160014c0a3dd0b7c1b3281be91112e16ce931dbac2a97950c3000000000000160014ad3abd3c325e40e20d89aa054dd980b97494f16c02473044022034db802aad655cd9be589075fc8ef325b6ffb8c24e5b27eb87bde8ad38f5fd7a0220364c916c8e8fc0adf714d7148cd1c6dc6f3e67d55471e57233b1870c65ec2727012103782f0ea892d7000e5f0f82b6ff283382a76500137a542bb0a616530094a8f54c0000000000",  # noqa: E501
             tx.hex)
 
-        addr11 = AddressUtil.p2wpkh(pubkey1, Network.REGTEST)
-        try:
-            tx.verify_sign(
-                outpoint=outpoint1,
-                address=addr11,
-                hash_type=addr11.hash_type,
-                amount=50000)
-        except Exception as err:
-            self.assertIsNone(err)
+    def test_empty_input(self):
+        txout = TxOut(1000)
+        self.assertEqual('', str(txout.locking_script))

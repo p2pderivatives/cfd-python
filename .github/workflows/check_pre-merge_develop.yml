@@ -7,6 +7,7 @@ on:
     - test_ci
     paths-ignore:
     - '.github/workflows/create_release-and-upload.yml'
+    - '.github/workflows/code_scanner.yml'
     - 'README.md'
   pull_request:
     branches:
@@ -14,10 +15,12 @@ on:
     - test_ci
 
 env:
-  GITHUB_VERSION: v0.0.5
+  GITHUB_VERSION: v0.0.8
+  GITHUB_BITCOIN_VERSION: v0.0.8
   DOCKER_PYTHON_VERSION: 3.7
   GITHUB_DOCKER_IMAGE: docker.pkg.github.com/cryptogarageinc/elements-testing-dockerfile/elements-testing
   ENTRYPOINT_PATH: /github/workspace/.github/workflows/docker/test_entrypoint.sh
+  BITCOIN_ENTRYPOINT_PATH: /github/workspace/.github/workflows/docker/test_bitcoin_entrypoint.sh
 
 jobs:
   build-and-test:
@@ -110,6 +113,29 @@ jobs:
         docker login docker.pkg.github.com -u owner -p ${{ secrets.GITHUB_TOKEN }}
         docker pull ${{ env.GITHUB_DOCKER_IMAGE }}:${{ env.GITHUB_VERSION }}
         docker run -v ${{ github.workspace }}:/github/workspace --entrypoint ${{ env.ENTRYPOINT_PATH }} ${{ env.GITHUB_DOCKER_IMAGE }}:${{ env.GITHUB_VERSION }}
+
+  bitcoin-e2e-test:
+    timeout-minutes: 20
+    name: bitcoin e2e test
+    runs-on: ubuntu-18.04
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ env.DOCKER_PYTHON_VERSION }}
+    - name: Display Python version
+      run: python -c "import sys; print(sys.version)"
+    - name: install pip
+      run: python -m pip install -U pip
+    - name: create wheel
+      run: pip wheel .
+    - name: e2e-test
+      run: |
+        docker login docker.pkg.github.com -u owner -p ${{ secrets.GITHUB_TOKEN }}
+        docker pull ${{ env.GITHUB_DOCKER_IMAGE }}:${{ env.GITHUB_BITCOIN_VERSION }}
+        docker run -v ${{ github.workspace }}:/github/workspace --entrypoint ${{ env.BITCOIN_ENTRYPOINT_PATH }} ${{ env.GITHUB_DOCKER_IMAGE }}:${{ env.GITHUB_BITCOIN_VERSION }}
 
   doxygen-ubuntu:
     name: doxygen-ubuntu

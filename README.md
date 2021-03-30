@@ -1,5 +1,56 @@
 # Crypto Finance Development Kit for Python (CFD-PYTHON)
 
+CFD library for Python.
+
+## Overview
+
+This library is development kit for crypto finance application.
+Useful when developing applications for cryptocurrencies.
+
+### Target Network
+
+- Bitcoin
+- Liquid Network
+
+### Support function by cfd
+
+- Bitcoin
+  - Bitcoin Script (builder, viewer)
+  - Transaction
+    - Create, Parse, Decode
+    - Simple pubkey-hash sign / verify
+    - Estimate Fee
+    - Coin Selection (FundRawTransaction)
+  - PSBT (v0. v2 & taproot is not yet.)
+    - Create, Parse, Decode
+    - Simple pubkey-hash sign / verify
+    - Estimate Fee
+    - Coin Selection (FundRawTransaction)
+  - ECDSA Pubkey/Privkey (TweakAdd/Mul, Negate, Sign, Verify)
+  - BIP32, BIP39
+  - Output Descriptor (contains miniscript parser)
+  - Schnorr/Taproot
+  - Bitcoin Address (Segwit-v0, Segwit-v1, P2PKH/P2SH)
+- Liquid Network
+  - Confidential Transaction
+    - Blind, Unblind
+    - Reissuance
+  - Confidential Address
+
+### Libraries for each language
+
+- Python : cfd-python
+  - C/C++ : cfd
+    - Extend the cfd-core library. Defines the C language API and extension classes.
+  - C++ : cfd-core
+    - Core library. Definition base class.
+- other language:
+  - JavaScript : cfd-js
+  - WebAssembly : cfd-js-wasm
+  - C# : cfd-csharp
+  - Go : cfd-go
+  - Rust : cfd-rust
+
 ## Dependencies
 
 - Python(CPython) (3.6 or higher)
@@ -35,7 +86,6 @@ brew install cmake python
 # install dependencies using APT package Manager
 apt-get install -y build-essential cmake python3 python3-dev 
 (Ubuntu 20.04 or higher) apt-get install -y python-is-python3
-curl https://sh.rustup.rs -sSf | sh  (select is 1)
 ```
 
 cmake version 3.14.2 or lower, download from website and install cmake.
@@ -83,10 +133,10 @@ pip install --user .
 
 ### install from wheel
 
-1. get releases asset. (ex. https://github.com/p2pderivatives/cfd-python/releases/download/v0.2.2/cfd-0.2.2-py3-none-win_amd64.whl )
+1. get releases asset. (ex. https://github.com/p2pderivatives/cfd-python/releases/download/v0.3.0/cfd-0.3.0-py3-none-win_amd64.whl )
 2. install pip
    ```
-   pip install --user cfd-0.2.2-py3-none-win_amd64.whl
+   pip install --user cfd-0.3.0-py3-none-win_amd64.whl
    ```
 
 ### uninstall
