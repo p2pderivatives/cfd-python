@@ -119,7 +119,9 @@ def test_signature_func(obj, name, case, req, exp, error):
     try:
         if name == 'Signature.EncodeByDer':
             sighash_type = SigHashType.get(
-                req['sighashType'], req.get('sighashAnyoneCanPay', False))
+                req['sighashType'],
+                anyone_can_pay=req.get('sighashAnyoneCanPay', False),
+                is_rangeproof=req.get('sighashRangeproof', False))
             resp = SignParameter.encode_by_der(
                 req['signature'], sighash_type)
         elif name == 'Signature.DecodeDerToRaw':
@@ -139,6 +141,9 @@ def test_signature_func(obj, name, case, req, exp, error):
             assert_equal(obj, name, case, exp,
                          resp.sighashtype.anyone_can_pay(),
                          'sighashAnyoneCanPay')
+            assert_equal(obj, name, case, exp,
+                         resp.sighashtype.is_rangeproof(),
+                         'sighashRangeproof')
 
     except CfdError as err:
         if not error:

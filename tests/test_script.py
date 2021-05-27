@@ -19,7 +19,8 @@ def test_script_func(obj, name, case, req, exp, error):
             for data in req.get('signParams', []):
                 sighash_type = SigHashType.get(
                     data.get('sighashType', 'all'),
-                    data.get('sighashAnyoneCanPay', False))
+                    anyone_can_pay=data.get('sighashAnyoneCanPay', False),
+                    is_rangeproof=data.get('sighashRangeproof', False))
                 _sign = SignParameter(
                     data['hex'], data.get('relatedPubkey', ''),
                     sighash_type)

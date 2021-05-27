@@ -50,17 +50,60 @@ def test_ct_transaction_func1(obj, name, case, req, exp, error):
                 req['version'], req['locktime'], txins, txouts)
         elif name == 'ConfidentialTransaction.Add':
             resp, txins, txouts = get_tx()
-            if len(txins) + len(txouts) == 1:
+            is_pegin = True if len(req.get('peginTxins', [])) > 0 else False
+            is_pegout = True if len(req.get('pegoutTxouts', [])) > 0 else False
+            is_destroy = True if len(
+                req.get('destroyAmountTxouts', [])) > 0 else False
+            if (len(txins) + len(txouts) == 1) or (
+                    is_pegin or is_pegout or is_destroy):
                 for input in req.get('txins', []):
                     resp.add_txin(txid=input['txid'], vout=input['vout'],
                                   sequence=input.get('sequence',
                                                      TxIn.SEQUENCE_DISABLE))
+                for input in req.get('peginTxins', []):
+                    pegin = input['peginwitness']
+                    block_hash = pegin['mainchainGenesisBlockHash']
+                    resp.add_pegin_input(
+                        outpoint=None,
+                        txid=input['txid'], vout=input['vout'],
+                        amount=pegin['amount'],
+                        asset=pegin['asset'],
+                        mainchain_genesis_block_hash=block_hash,
+                        claim_script=pegin['claimScript'],
+                        mainchain_tx=pegin['mainchainRawTransaction'],
+                        txout_proof=pegin['mainchainTxoutproof'])
                 for output in req.get('txouts', []):
                     resp.add_txout(
                         output['amount'], address=output.get('address', ''),
                         locking_script=output.get('directLockingScript', ''),
                         asset=output.get('asset', ''),
                         nonce=output.get('directNonce', ''))
+                btc_addresses = []
+                for pegout in req.get('pegoutTxouts', []):
+                    block_hash = pegout['mainchainGenesisBlockHash']
+                    network = pegout.get('network', Network.MAINNET)
+                    elements_network = pegout.get(
+                        'elementsNetwork', Network.LIQUID_V1)
+                    if elements_network == 'regtest':
+                        elements_network = Network.ELEMENTS_REGTEST
+                    elif not elements_network:
+                        _nw = Network.get(network)
+                        if _nw == Network.MAINNET:
+                            elements_network = Network.LIQUID_V1
+                        else:
+                            elements_network = Network.ELEMENTS_REGTEST
+                    addr = resp.add_pegout_output(
+                        asset=pegout['asset'],
+                        amount=pegout['amount'],
+                        mainchain_network_type=network,
+                        elements_network_type=elements_network,
+                        mainchain_genesis_block_hash=block_hash,
+                        online_pubkey=pegout['onlinePubkey'],
+                        master_online_key=pegout['masterOnlineKey'],
+                        mainchain_output_descriptor=pegout['bitcoinDescriptor'],
+                        bip32_counter=pegout['bip32Counter'],
+                        whitelist=pegout['whitelist'])
+                    btc_addresses.append(addr)
                 for output in req.get('destroyAmountTxouts', []):
                     resp.add_destroy_amount_txout(
                         output['amount'], output.get('asset', ''),
@@ -72,7 +115,7 @@ def test_ct_transaction_func1(obj, name, case, req, exp, error):
             else:
                 resp.add(txins, txouts)
         elif name == 'ConfidentialTransaction.UpdateTxOutAmount':
-            resp, txins, txouts = get_tx()
+            resp, _, _ = get_tx()
             for output in req.get('txouts', []):
                 if 'index' in output:
                     index = output['index']
@@ -81,10 +124,36 @@ def test_ct_transaction_func1(obj, name, case, req, exp, error):
                         address=output.get('address', ''),
                         locking_script=output.get('directLockingScript', ''))
                 resp.update_txout_amount(index, output['amount'])
+        elif name == 'ConfidentialTransaction.SplitTxOut':
+            resp, _, _ = get_tx()
+            txouts = []
+            for output in req.get('txouts', []):
+                txouts.append(ConfidentialTxOut.new(
+                    amount=output['amount'], address=output.get('address', ''),
+                    locking_script=output.get('directLockingScript', ''),
+                    nonce=output.get('directNonce', '')))
+            resp.split_txout(req['index'], txouts)
         elif name == 'ConfidentialTransaction.UpdateWitnessStack':
-            resp, txins, txouts = get_tx()
-            # FIXME impl
-            return True
+            resp, _, _ = get_tx()
+            txin = req['txin']
+            witness = txin['witnessStack']
+            data = witness['hex']
+            if witness.get('derEncode', False) and (
+                    witness.get('type', '') == 'sign'):
+                sign_param = SignParameter.encode_by_der(
+                    data, sighashtype=witness.get('sighashType', 'all'))
+                data = sign_param.hex
+            resp.update_witness_stack(
+                OutPoint(txin['txid'], txin['vout']),
+                witness.get('index', 0), data)
+        elif name == 'ConfidentialTransaction.UpdatePeginWitnessStack':
+            resp, _, _ = get_tx()
+            txin = req['txin']
+            witness = txin['witnessStack']
+            data = witness['hex']
+            resp.update_pegin_witness_stack(
+                OutPoint(txin['txid'], txin['vout']),
+                witness.get('index', 0), data)
 
         elif name == 'ConfidentialTransaction.UpdateTxOutFeeAmount':
             resp, _, _ = get_tx()
@@ -93,6 +162,8 @@ def test_ct_transaction_func1(obj, name, case, req, exp, error):
             return False
         assert_error(obj, name, case, error)
 
+        if exp['hex'] != str(resp):
+            print('hex =', str(resp))
         assert_equal(obj, name, case, exp, str(resp), 'hex')
 
     except CfdError as err:
@@ -117,7 +188,8 @@ def test_ct_transaction_func2(obj, name, case, req, exp, error):
             resp, txin = get_tx()
             _sighashtype = SigHashType.get(
                 txin.get('sighashType', 'all'),
-                txin.get('sighashAnyoneCanPay', False))
+                anyone_can_pay=txin.get('sighashAnyoneCanPay', False),
+                is_rangeproof=txin.get('sighashRangeproof', False))
             resp.sign_with_privkey(
                 OutPoint(txin['txid'], txin['vout']),
                 txin['hashType'],
@@ -133,7 +205,8 @@ def test_ct_transaction_func2(obj, name, case, req, exp, error):
             for param in txin.get('signParams', []):
                 _sighashtype = SigHashType.get(
                     param.get('sighashType', 'all'),
-                    param.get('sighashAnyoneCanPay', False))
+                    anyone_can_pay=param.get('sighashAnyoneCanPay', False),
+                    is_rangeproof=param.get('sighashRangeproof', False))
                 encode_der = False
                 if param.get('type', '') == 'sign':
                     encode_der = True
@@ -150,7 +223,8 @@ def test_ct_transaction_func2(obj, name, case, req, exp, error):
             param = txin['signParam']
             _sighashtype = SigHashType.get(
                 param.get('sighashType', 'all'),
-                param.get('sighashAnyoneCanPay', False))
+                anyone_can_pay=param.get('sighashAnyoneCanPay', False),
+                is_rangeproof=param.get('sighashRangeproof', False))
             resp.add_pubkey_hash_sign(
                 OutPoint(txin['txid'], txin['vout']),
                 txin['hashType'],
@@ -165,7 +239,8 @@ def test_ct_transaction_func2(obj, name, case, req, exp, error):
             for param in txin.get('signParams', []):
                 _sighashtype = SigHashType.get(
                     param.get('sighashType', 'all'),
-                    param.get('sighashAnyoneCanPay', False))
+                    anyone_can_pay=param.get('sighashAnyoneCanPay', False),
+                    is_rangeproof=param.get('sighashRangeproof', False))
                 sign = SignParameter(
                     param['hex'],
                     sighashtype=_sighashtype,
@@ -185,7 +260,8 @@ def test_ct_transaction_func2(obj, name, case, req, exp, error):
             for param in txin.get('signParams', []):
                 _sighashtype = SigHashType.get(
                     param.get('sighashType', 'all'),
-                    param.get('sighashAnyoneCanPay', False))
+                    anyone_can_pay=param.get('sighashAnyoneCanPay', False),
+                    is_rangeproof=param.get('sighashRangeproof', False))
                 try:
                     sign = SignParameter(
                         param['hex'],
@@ -291,7 +367,8 @@ def test_ct_transaction_func3(obj, name, case, req, exp, error):
             script = key_data['hex'] if key_data['type'] != 'pubkey' else ''
             _sighashtype = SigHashType.get(
                 txin.get('sighashType', 'all'),
-                txin.get('sighashAnyoneCanPay', False))
+                anyone_can_pay=txin.get('sighashAnyoneCanPay', False),
+                is_rangeproof=txin.get('sighashRangeproof', False))
             resp = resp.get_sighash(
                 OutPoint(txin['txid'], txin['vout']),
                 txin['hashType'],
@@ -305,6 +382,21 @@ def test_ct_transaction_func3(obj, name, case, req, exp, error):
             txin = req['txin']
             index = resp.get_txin_index(txid=txin['txid'], vout=txin['vout'])
             resp = len(resp.txin_list[index].witness_stack)
+        elif name == 'ConfidentialTransaction.GetTxInIndex':
+            resp = ConfidentialTransaction.from_hex(req['tx'])
+            resp = resp.get_txin_index(txid=req['txid'], vout=req['vout'])
+        elif name == 'ConfidentialTransaction.GetTxOutIndex':
+            resp = ConfidentialTransaction.from_hex(req['tx'])
+            index = resp.get_txout_index(
+                address=req.get('address', ''),
+                locking_script=req.get('directLockingScript', ''))
+            indexes = resp.get_txout_indexes(
+                address=req.get('address', ''),
+                locking_script=req.get('directLockingScript', ''))
+            resp = {
+                'index': index,
+                'indexes': indexes,
+            }
         else:
             return False
         assert_error(obj, name, case, error)
@@ -319,6 +411,17 @@ def test_ct_transaction_func3(obj, name, case, req, exp, error):
             assert_match(obj, name, case, exp_json, resp, 'json')
         elif name == 'ConfidentialTransaction.GetWitnessStackNum':
             assert_equal(obj, name, case, exp, resp, 'count')
+        elif name == 'Transaction.GetTxInIndex':
+            assert_equal(obj, name, case, exp, resp, 'index')
+        elif name == 'Transaction.GetTxOutIndex':
+            assert_equal(obj, name, case, exp, resp['index'], 'index')
+            assert_match(obj, name, case, len(
+                exp['indexes']), len(resp['indexes']), 'indexes')
+            exp_list = exp['indexes']
+            idx_list = resp['indexes']
+            for i in range(len(exp_list)):
+                assert_match(obj, name, case, exp_list[i],
+                             idx_list[i], f'indexes.${i}')
         else:
             assert_equal(obj, name, case, exp, str(resp), 'sighash')
 
@@ -345,13 +448,80 @@ def test_ct_transaction_func4(obj, name, case, req, exp, error):
             resp = ConfidentialTransaction.get_issuance_blinding_key(
                 req['masterBlindingKey'], req['txid'], req['vout'])
         elif name == 'ConfidentialTransaction.CreateRawPegin':
-            # FIXME: implement
-            return True
+            resp = ConfidentialTransaction.create(
+                req['version'], req['locktime'])
+            for input in req.get('txins', []):
+                if input.get('isPegin', False):
+                    pegin = input['peginwitness']
+                    block_hash = pegin['mainchainGenesisBlockHash']
+                    resp.add_pegin_input(
+                        outpoint=None,
+                        txid=input['txid'], vout=input['vout'],
+                        amount=pegin['amount'],
+                        asset=pegin['asset'],
+                        mainchain_genesis_block_hash=block_hash,
+                        claim_script=pegin['claimScript'],
+                        mainchain_tx=pegin['mainchainRawTransaction'],
+                        txout_proof=pegin['mainchainTxoutproof'],)
+                else:
+                    resp.add_txin(txid=input['txid'], vout=input['vout'],
+                                  sequence=input.get('sequence',
+                                                     TxIn.SEQUENCE_DISABLE))
+            for output in req.get('txouts', []):
+                resp.add_txout(
+                    output['amount'], address=output.get('address', ''),
+                    locking_script=output.get('directLockingScript', ''),
+                    asset=output.get('asset', ''),
+                    nonce=output.get('directNonce', ''))
+            if ('fee' in req) and ('amount' in req['fee']):
+                output = req['fee']
+                resp.add_fee_txout(
+                    output['amount'], output.get('asset', ''))
         elif name == 'ConfidentialTransaction.CreateRawPegout':
-            # FIXME: implement
-            return True
+            resp = ConfidentialTransaction.create(
+                req['version'], req['locktime'])
+            for input in req.get('txins', []):
+                resp.add_txin(txid=input['txid'], vout=input['vout'],
+                              sequence=input.get('sequence',
+                                                 TxIn.SEQUENCE_DISABLE))
+            for output in req.get('txouts', []):
+                resp.add_txout(
+                    output['amount'], address=output.get('address', ''),
+                    locking_script=output.get('directLockingScript', ''),
+                    asset=output.get('asset', ''),
+                    nonce=output.get('directNonce', ''))
+            pegout = req.get('pegout', {})
+            block_hash = pegout['mainchainGenesisBlockHash']
+            network = pegout.get('network', Network.MAINNET)
+            elements_network = pegout.get('elementsNetwork', Network.LIQUID_V1)
+            if elements_network == 'regtest':
+                elements_network = Network.ELEMENTS_REGTEST
+            elif not elements_network:
+                _nw = Network.get(network)
+                if _nw == Network.MAINNET:
+                    elements_network = Network.LIQUID_V1
+                else:
+                    elements_network = Network.ELEMENTS_REGTEST
+            addr = resp.add_pegout_output(
+                asset=pegout['asset'],
+                amount=pegout['amount'],
+                mainchain_network_type=network,
+                elements_network_type=elements_network,
+                mainchain_genesis_block_hash=block_hash,
+                online_pubkey=pegout['onlinePubkey'],
+                master_online_key=pegout['masterOnlineKey'],
+                mainchain_output_descriptor=pegout['bitcoinDescriptor'],
+                bip32_counter=pegout['bip32Counter'],
+                whitelist=pegout['whitelist'])
+            if ('fee' in req) and ('amount' in req['fee']):
+                output = req['fee']
+                resp.add_fee_txout(
+                    output['amount'], output.get('asset', ''))
+            resp = {
+                'hex': str(resp),
+                'btcAddress': str(addr),
+            }
         elif name == 'ConfidentialTransaction.CreateDestroyAmount':
-            # FIXME: implement
             resp = ConfidentialTransaction.create(
                 req['version'], req['locktime'])
             for input in req.get('txins', []):
@@ -372,9 +542,6 @@ def test_ct_transaction_func4(obj, name, case, req, exp, error):
                 output = req['fee']
                 resp.add_fee_txout(
                     output['amount'], output.get('asset', ''))
-        elif name == 'ConfidentialTransaction.SetIssueAsset':
-            # FIXME: implement
-            return True
         elif name == 'ConfidentialTransaction.Unblind':
             outputs = []
             issuance_outputs = []
@@ -404,6 +571,27 @@ def test_ct_transaction_func4(obj, name, case, req, exp, error):
                     'tokenamount': issuance[1].value.amount
                 })
             resp = {'outputs': outputs, 'issuanceOutputs': issuance_outputs}
+        elif name == 'ConfidentialTransaction.SetIssueAsset':
+            resp = ConfidentialTransaction.from_hex(req['tx'])
+            issuances = []
+            for issuance in req.get('issuances', []):
+                entropy, asset, token = resp.set_raw_issue_asset(
+                    outpoint=None,
+                    asset_amount=issuance['assetAmount'],
+                    asset_address=issuance['assetAddress'],
+                    token_amount=issuance.get('tokenAmount', 0),
+                    token_address=issuance.get('tokenAddress', ''),
+                    is_blind_asset=issuance.get('isBlind', False),
+                    contract_hash=issuance.get('contractHash', ''),
+                    txid=issuance['txid'], vout=issuance['vout'])
+                issuances.append({
+                    'txid': str(issuance['txid']),
+                    'vout': issuance['vout'],
+                    'asset': str(asset),
+                    'entropy': str(entropy),
+                    'token': str(token)
+                })
+            resp = {'hex': str(resp), 'issuances': issuances}
         elif name == 'ConfidentialTransaction.SetReissueAsset':
             resp = ConfidentialTransaction.from_hex(req['tx'])
             issuances = []
@@ -514,7 +702,8 @@ def test_ct_transaction_func4(obj, name, case, req, exp, error):
                              exp_issuances[index]['tokenamount'],
                              output['tokenamount'],
                              'issuanceOutputs.tokenamount')
-        elif name == 'ConfidentialTransaction.SetReissueAsset':
+        elif name in ['ConfidentialTransaction.SetReissueAsset',
+                      'ConfidentialTransaction.SetIssueAsset']:
             assert_equal(obj, name, case, exp, str(resp['hex']), 'hex')
             assert_match(obj, name, case, len(exp['issuances']),
                          len(resp['issuances']), 'issuancesLen')
@@ -531,6 +720,10 @@ def test_ct_transaction_func4(obj, name, case, req, exp, error):
                 assert_match(obj, name, case,
                              exp['issuances'][index]['entropy'],
                              output['entropy'], 'issuances.entropy')
+                if 'token' in exp:
+                    assert_match(obj, name, case,
+                                 exp['issuances'][index]['token'],
+                                 output['token'], 'issuances.token')
 
         elif name == 'ConfidentialTransaction.Blind':
             if resp['size'] < exp['minSize']:
@@ -609,8 +802,17 @@ def test_ct_transaction_func4(obj, name, case, req, exp, error):
                         str(data.amount_blinder),
                         str(blinder.amount_blinder),
                         f'Fail: {name}:{case}:blinder:{blind_index}')
-        else:
+        elif name in ['ConfidentialTransaction.BlindingKey.Default',
+                      'ConfidentialTransaction.BlindingKey.Issuance']:
             assert_equal(obj, name, case, exp, str(resp), 'blindingKey')
+        elif name == 'ConfidentialTransaction.CreateRawPegout':
+            assert_equal(obj, name, case, exp, str(resp['hex']), 'hex')
+            assert_equal(obj, name, case, exp,
+                         str(resp['btcAddress']), 'btcAddress')
+        else:
+            if str(resp) != exp['hex']:
+                print('hex =', str(resp))
+            assert_equal(obj, name, case, exp, str(resp), 'hex')
 
     except CfdError as err:
         if not error:

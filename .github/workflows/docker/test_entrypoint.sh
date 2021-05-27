@@ -52,12 +52,6 @@ pip3 install python-bitcoinrpc
 
 cd integration_test
 
-python3 tests/test_bitcoin.py -v
-if [ $? -gt 0 ]; then
-  cd ../..
-  exit 1
-fi
-
 python3 tests/test_elements.py -v
 if [ $? -gt 0 ]; then
   cd ../..

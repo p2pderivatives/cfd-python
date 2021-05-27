@@ -13,8 +13,8 @@ on:
     - features/sprint*
 
 env:
-  GITHUB_VERSION: v0.0.8
-  GITHUB_BITCOIN_VERSION: v0.0.8
+  GITHUB_VERSION: v0.0.10
+  GITHUB_BITCOIN_VERSION: v0.0.10
   DOCKER_PYTHON_VERSION: 3.7
   GITHUB_DOCKER_IMAGE: docker.pkg.github.com/cryptogarageinc/elements-testing-dockerfile/elements-testing
   ENTRYPOINT_PATH: /github/workspace/.github/workflows/docker/test_entrypoint.sh

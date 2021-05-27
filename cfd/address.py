@@ -3,7 +3,7 @@
 # @file address.py
 # @brief address function implements file.
 # @note Copyright 2020 CryptoGarage
-from typing import Union, Optional, List
+from typing import Tuple, Union, Optional, List
 from .util import get_util, CfdError, JobHandle, to_hex_string
 from .key import Network, Pubkey, SchnorrPubkey
 from .script import HashType, Script
@@ -385,6 +385,46 @@ class AddressUtil:
                     _addr.pubkey = pubkey
                     addr_list.append(_addr)
         return addr_list
+
+    ##
+    # @brief get pegin address.
+    # @param[in] fedpeg_script          fedpeg script
+    # @param[in] pubkey                 pubkey
+    # @param[in] redeem_script          redeem script
+    # @param[in] hash_type              script hash type
+    # @param[in] mainchain_network      mainchain network type
+    # @retval [0]      pegin address.
+    # @retval [1]      claim script.
+    # @retval [2]      tweaked fedpeg script.
+    @classmethod
+    def get_pegin_address(
+            cls,
+            fedpeg_script: Union['Script', str],
+            pubkey='',
+            redeem_script='',
+            hash_type: Union['HashType', str] = HashType.P2SH_P2WSH,
+            mainchain_network=Network.MAINNET,
+    ) -> Tuple['Address', 'Script', 'Script']:
+        _fedpeg_script = to_hex_string(fedpeg_script)
+        _hash_type = HashType.get(hash_type)
+        _network = Network.get(mainchain_network)
+        _pubkey = '' if pubkey is None else to_hex_string(pubkey)
+        _script = '' if redeem_script is None else to_hex_string(redeem_script)
+        if (not _pubkey) and (not _script):
+            raise CfdError(
+                error_code=1,
+                message='Error: Both pubkey and redeem_script is empty.')
+        elif not _script:
+            _ = Pubkey(_pubkey)  # check pubkey
+
+        util = get_util()
+        with util.create_handle() as handle:
+            addr, claim_script, tweaked_fedpeg = util.call_func(
+                'CfdGetPeginAddress',
+                handle.get_handle(), _network.value, _fedpeg_script,
+                _hash_type.value, _pubkey, _script)
+            return cls.parse(addr), Script(claim_script), Script(
+                tweaked_fedpeg)
 
 
 ##
