@@ -13,8 +13,8 @@ on:
     - master
 
 env:
-  GITHUB_VERSION: v0.0.8
-  GITHUB_BITCOIN_VERSION: v0.0.8
+  GITHUB_VERSION: v0.0.10
+  GITHUB_BITCOIN_VERSION: v0.0.10
   DOCKER_PYTHON_VERSION: 3.7
   GITHUB_DOCKER_IMAGE: docker.pkg.github.com/cryptogarageinc/elements-testing-dockerfile/elements-testing
   ENTRYPOINT_PATH: /github/workspace/.github/workflows/docker/test_entrypoint.sh
@@ -90,9 +90,9 @@ jobs:
     - name: call example
       run: python ./tools/example.py
 
-  e2e-test:
+  elements-e2e-test:
     timeout-minutes: 20
-    name: e2e-test
+    name: elements e2e test
     runs-on: ubuntu-18.04
 
     steps:

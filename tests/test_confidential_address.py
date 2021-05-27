@@ -31,12 +31,9 @@ def test_ct_address_func(obj, name, case, req, exp, error):
     return True
 
 
-class TestElementsAddress(TestCase):
+class TestConfidentialAddress(TestCase):
     def setUp(self):
         self.test_list = load_json_file('elements_address_test.json')
 
     def test_confidential_address(self):
         exec_test(self, 'ConfidentialAddress', test_ct_address_func)
-
-    # def test_pegin_address(self):
-    #     exec_test(self, 'PeginAddress', test_pegin_address_func)

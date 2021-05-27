@@ -111,6 +111,24 @@ class SigHashType(Enum):
     ##
     # SigHashType: single+anyoneCanPay
     SINGLE_PLUS_ANYONE_CAN_PAY = 0x83
+    ##
+    # SigHashType: all+rangeproof
+    ALL_PLUS_RANGEPROOF = 0x41
+    ##
+    # SigHashType: none+rangeproof
+    NONE_PLUS_RANGEPROOF = 0x42
+    ##
+    # SigHashType: single+rangeproof
+    SINGLE_PLUS_RANGEPROOF = 0x43
+    ##
+    # SigHashType: all+anyoneCanPay+rangeproof
+    ALL_PLUS_ANYONE_CAN_PAY_RANGEPROOF = 0xc1
+    ##
+    # SigHashType: none+anyoneCanPay+rangeproof
+    NONE_PLUS_ANYONE_CAN_PAY_RANGEPROOF = 0xc2
+    ##
+    # SigHashType: single+anyoneCanPay+rangeproof
+    SINGLE_PLUS_ANYONE_CAN_PAY_RANGEPROOF = 0xc3
 
     ##
     # @brief get string.
@@ -135,7 +153,14 @@ class SigHashType(Enum):
     # @retval True      anyone can pay is true.
     # @retval False     anyone can pay is false.
     def anyone_can_pay(self) -> bool:
-        return self.value >= 0x80
+        return (self.value & 0x80) != 0
+
+    ##
+    # @brief get rangeproof flag.
+    # @retval True      rangeproof is true.
+    # @retval False     rangeproof is false.
+    def is_rangeproof(self) -> bool:
+        return (self.value & 0x40) != 0
 
     ##
     # @brief get type object.
@@ -147,26 +172,48 @@ class SigHashType(Enum):
     # @brief get object.
     # @param[in] sighashtype        sighash type
     # @param[in] anyone_can_pay     anyone can pay flag
+    # @param[in] is_rangeproof      rangeproof flag
     # @return object.
     @classmethod
-    def get(cls, sighashtype, anyone_can_pay: bool = False) -> 'SigHashType':
+    def get(cls, sighashtype, anyone_can_pay: bool = False,
+            is_rangeproof: bool = False) -> 'SigHashType':
         if (isinstance(sighashtype, SigHashType)):
-            if anyone_can_pay is True:
+            if anyone_can_pay is True and is_rangeproof is True:
+                return cls.get(sighashtype.value | 0xc0)
+            elif anyone_can_pay is True:
                 return cls.get(sighashtype.value | 0x80)
+            elif is_rangeproof is True:
+                return cls.get(sighashtype.value | 0x40)
             else:
                 return sighashtype
         elif (isinstance(sighashtype, int)):
             _num = int(sighashtype)
             if anyone_can_pay is True:
                 _num |= 0x80
+            if is_rangeproof is True:
+                _num |= 0x40
             for hash_type in SigHashType:
                 if _num == hash_type.value:
                     return hash_type
         else:
             _hash_type = str(sighashtype).lower()
-            if (anyone_can_pay is True) and (
-                    _hash_type.find('_plus_anyone_can_pay') == -1):
+            if _hash_type.find('|') > 0:
+                hash_strs = _hash_type.split('|')
+                _hash_type = hash_strs[0]
+                for hash_str in hash_strs:
+                    if hash_str == 'anyonecanpay':
+                        anyone_can_pay = True
+                    elif hash_str == 'rangeproof':
+                        is_rangeproof = True
+
+            if _hash_type.find('_plus_') != -1:
+                pass
+            elif (anyone_can_pay is True) and (is_rangeproof is True):
+                _hash_type += '_plus_anyone_can_pay_rangeproof'
+            elif anyone_can_pay is True:
                 _hash_type += '_plus_anyone_can_pay'
+            elif is_rangeproof is True:
+                _hash_type += '_plus_rangeproof'
             for hash_type in SigHashType:
                 if _hash_type == hash_type.name.lower():
                     return hash_type
@@ -543,7 +590,7 @@ class SignParameter:
         with util.create_handle() as handle:
             der_signature = util.call_func(
                 'CfdEncodeSignatureByDer', handle.get_handle(),
-                _signature, _sighashtype.get_type(),
+                _signature, _sighashtype.value,
                 _sighashtype.anyone_can_pay())
         return SignParameter(der_signature, '', _sighashtype)
 

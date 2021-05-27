@@ -37,6 +37,20 @@ class Txid(ReverseByteData):
 
 
 ##
+# @class BlockHash
+# @brief BlockHash class.
+class BlockHash(ReverseByteData):
+    ##
+    # @brief constructor.
+    # @param[in] txid   txid
+    def __init__(self, txid):
+        super().__init__(txid)
+        if len(self.hex) != 64:
+            raise CfdError(
+                error_code=1, message='Error: Invalid block hash.')
+
+
+##
 # @class OutPoint
 # @brief OutPoint class.
 class OutPoint:
@@ -454,6 +468,59 @@ class _TransactionBase:
             return index
 
     ##
+    # @brief get transaction output index list.
+    # @param[in] address            address
+    # @param[in] locking_script     locking_script
+    # @return index list
+    def get_txout_indexes(self, address='', locking_script='') -> List[int]:
+        _script = to_hex_string(locking_script)
+        util = get_util()
+        with util.create_handle() as handle, self._get_handle(
+                handle, self.network) as tx_handle:
+            list = []
+            offset = 0
+            index = util.call_func(
+                'CfdGetTxOutIndexWithOffsetByHandle', handle.get_handle(),
+                tx_handle.get_handle(), offset, str(address), _script)
+            list.append(index)
+            offset = index + 1
+            while True:
+                try:
+                    index = util.call_func(
+                        'CfdGetTxOutIndexWithOffsetByHandle',
+                        handle.get_handle(), tx_handle.get_handle(),
+                        offset, str(address), _script)
+                    list.append(index)
+                    offset = index + 1
+                except CfdError as err:
+                    if err.error_code == CfdErrorCode.OUT_OF_RANGE.value:
+                        break
+                    else:
+                        raise err
+            return list
+
+    ##
+    # @brief update witness stack.
+    # @param[in] outpoint       outpoint
+    # @param[in] stack_index    witness stack index.
+    # @param[in] data           stack data
+    # @return void
+    def update_witness_stack(
+            self, outpoint: 'OutPoint', stack_index: int, data) -> None:
+        _data = to_hex_string(data)
+        util = get_util()
+        with util.create_handle() as handle, self._get_handle(
+                handle, self.network) as tx_handle:
+            self.hex = util.call_func(
+                'CfdUpdateWitnessStack', handle.get_handle(),
+                tx_handle.get_handle(), 0, str(outpoint.txid),
+                outpoint.vout, stack_index, _data)
+            self.hex = util.call_func(
+                'CfdFinalizeTransaction', handle.get_handle(),
+                tx_handle.get_handle())
+            self._update_txin_internal(handle, tx_handle, outpoint)
+
+    ##
     # @brief add pubkey hash sign.
     # @param[in] outpoint       outpoint
     # @param[in] hash_type      hash type
@@ -478,7 +545,7 @@ class _TransactionBase:
                 'CfdAddPubkeyHashSign', handle.get_handle(),
                 self.network, self.hex, str(outpoint.txid),
                 outpoint.vout, _hash_type.value, _pubkey,
-                _signature, use_der_encode, _sighashtype.get_type(),
+                _signature, use_der_encode, _sighashtype.value,
                 _sighashtype.anyone_can_pay())
             self._update_txin(outpoint)
 
@@ -521,7 +588,7 @@ class _TransactionBase:
                         util.call_func(
                             'CfdAddMultisigSignDataToDer',
                             handle.get_handle(), tx_handle.get_handle(),
-                            _sig, _sighashtype.get_type(),
+                            _sig, _sighashtype.value,
                             _sighashtype.anyone_can_pay(), _related_pubkey)
                     else:
                         util.call_func(
@@ -570,7 +637,7 @@ class _TransactionBase:
                     'CfdAddTxSignByHandle', handle.get_handle(),
                     tx_handle.get_handle(), str(outpoint.txid),
                     outpoint.vout, _hash_type.value, _sig,
-                    use_der_encode, _sighashtype.get_type(),
+                    use_der_encode, _sighashtype.value,
                     _sighashtype.anyone_can_pay(), clear_stack)
                 clear_stack = False
 
@@ -600,12 +667,12 @@ class _TransactionBase:
         util = get_util()
         with util.create_handle() as handle, self._get_handle(
                 handle, self.network) as tx_handle:
-            if (len(_signature) == 64*2) and (
+            if (len(_signature) == 64 * 2) and (
                     _sighashtype != SigHashType.DEFAULT):
                 _signature = util.call_func(
                     'CfdAddSighashTypeInSchnorrSignature',
                     handle.get_handle(), _signature,
-                    _sighashtype.get_type(), _sighashtype.anyone_can_pay())
+                    _sighashtype.value, _sighashtype.anyone_can_pay())
 
             util.call_func(
                 'CfdAddTaprootSignByHandle',
@@ -642,17 +709,17 @@ class _TransactionBase:
                 _sighashtype = SigHashType.ALL
                 if isinstance(sig, SignParameter):
                     _sighashtype = SigHashType.get(sig.sighashtype)
-                if (len(_sig) == 64*2) and (
+                if (len(_sig) == 64 * 2) and (
                         _sighashtype != SigHashType.DEFAULT):
                     _sig = util.call_func(
                         'CfdAddSighashTypeInSchnorrSignature',
                         handle.get_handle(), _sig,
-                        _sighashtype.get_type(), _sighashtype.anyone_can_pay())
+                        _sighashtype.value, _sighashtype.anyone_can_pay())
                 util.call_func(
                     'CfdAddTxSignByHandle', handle.get_handle(),
                     tx_handle.get_handle(), str(outpoint.txid),
                     outpoint.vout, HashType.TAPROOT.value, _sig,
-                    False, _sighashtype.get_type(),
+                    False, _sighashtype.value,
                     _sighashtype.anyone_can_pay(), clear_stack)
                 clear_stack = False
 
@@ -690,7 +757,7 @@ class _TransactionBase:
                 'CfdAddTxSign', handle.get_handle(),
                 self.network, self.hex, str(outpoint.txid),
                 outpoint.vout, _hash_type.value, _sign_data,
-                use_der_encode, _sighashtype.get_type(),
+                use_der_encode, _sighashtype.value,
                 _sighashtype.anyone_can_pay(), clear_stack)
             self._update_txin(outpoint)
 
@@ -1049,6 +1116,37 @@ class Transaction(_TransactionBase):
             self.txout_list[index].amount = amount
 
     ##
+    # @brief split transaction output.
+    # @param[in] index              target txout index
+    # @param[in] txout_list         append split data list
+    # @return void
+    def split_txout(self, index: int, txout_list: List['TxOut']):
+        util = get_util()
+
+        def get_split_handle(handle, tx_handle) -> 'JobHandle':
+            work_handle = util.call_func(
+                'CfdCreateSplitTxOutHandle', handle.get_handle(),
+                tx_handle.get_handle())
+            return JobHandle(handle, work_handle, 'CfdFreeSplitTxOutHandle')
+
+        with util.create_handle() as handle, self._get_handle(
+                handle, self.network) as tx_handle, get_split_handle(
+                    handle, tx_handle) as split_handle:
+            for txout in txout_list:
+                _script = '' if txout.address else txout.locking_script
+                util.call_func(
+                    'CfdAddSplitTxOutData', handle.get_handle(),
+                    split_handle.get_handle(), txout.amount,
+                    str(txout.address), to_hex_string(_script), '')
+            util.call_func(
+                'CfdSplitTxOut', handle.get_handle(),
+                tx_handle.get_handle(), split_handle.get_handle(), index)
+            self.hex = util.call_func(
+                'CfdFinalizeTransaction', handle.get_handle(),
+                tx_handle.get_handle())
+        self._update_tx_all()
+
+    ##
     # @brief get signature hash.
     # @param[in] outpoint       outpoint
     # @param[in] hash_type      hash type
@@ -1086,7 +1184,7 @@ class Transaction(_TransactionBase):
                     'CfdCreateSighash', handle.get_handle(),
                     self.NETWORK, self.hex, str(outpoint.txid),
                     outpoint.vout, _hash_type.value, _pubkey,
-                    _script, amount, _sighashtype.get_type(),
+                    _script, amount, _sighashtype.value,
                     _sighashtype.anyone_can_pay())
         else:
             with util.create_handle() as handle, super()._get_handle(
@@ -1105,7 +1203,7 @@ class Transaction(_TransactionBase):
                 sighash = util.call_func(
                     'CfdCreateSighashByHandle', handle.get_handle(),
                     tx_handle.get_handle(), str(outpoint.txid),
-                    outpoint.vout, _sighashtype.get_type(),
+                    outpoint.vout, _sighashtype.value,
                     _sighashtype.anyone_can_pay(), _pubkey, _script,
                     _tapleaf_hash, codeseparator_pos, to_hex_string(annex))
         return ByteData(sighash)
@@ -1149,7 +1247,7 @@ class Transaction(_TransactionBase):
                     'CfdAddSignWithPrivkeySimple', handle.get_handle(),
                     self.NETWORK, self.hex, str(outpoint.txid),
                     outpoint.vout, _hash_type.value, str(_pubkey),
-                    str(_privkey), amount, _sighashtype.get_type(),
+                    str(_privkey), amount, _sighashtype.value,
                     _sighashtype.anyone_can_pay(), grind_r)
                 self._update_txin(outpoint)
         else:
@@ -1166,7 +1264,7 @@ class Transaction(_TransactionBase):
                 util.call_func(
                     'CfdAddSignWithPrivkeyByHandle', handle.get_handle(),
                     tx_handle.get_handle(), str(outpoint.txid),
-                    outpoint.vout, str(_privkey), _sighashtype.get_type(),
+                    outpoint.vout, str(_privkey), _sighashtype.value,
                     _sighashtype.anyone_can_pay(), grind_r,
                     to_hex_string(aux_rand), to_hex_string(annex))
                 self.hex = util.call_func(
@@ -1246,7 +1344,7 @@ class Transaction(_TransactionBase):
                     'CfdVerifySignature', handle.get_handle(),
                     self.NETWORK, self.hex, _signature, _hash_type.value,
                     _pubkey, _script, str(outpoint.txid),
-                    outpoint.vout, _sighashtype.get_type(),
+                    outpoint.vout, _sighashtype.value,
                     _sighashtype.anyone_can_pay(), amount, '')
                 return True
         except CfdError as err:

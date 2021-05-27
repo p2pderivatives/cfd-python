@@ -137,7 +137,7 @@ class Script:
                         util.call_func(
                             'CfdAddMultisigScriptSigDataToDer',
                             handle.get_handle(), script_handle.get_handle(),
-                            param.hex, _sighashtype.get_type(),
+                            param.hex, _sighashtype.value,
                             _sighashtype.anyone_can_pay(),
                             param.related_pubkey)
                     else:

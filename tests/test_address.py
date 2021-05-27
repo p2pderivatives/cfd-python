@@ -1,4 +1,5 @@
 from unittest import TestCase
+from unittest.main import main
 from tests.util import load_json_file, exec_test,\
     assert_equal, assert_error, assert_match, assert_message
 from cfd.address import AddressUtil
@@ -292,6 +293,41 @@ def test_address_func(obj, name, case, req, exp, error):
         assert_equal(obj, name, case, exp, err.message)
 
 
+def test_pegin_address_func(obj, name, case, req, exp, error):
+    try:
+        resp = None
+
+        if name == 'PeginAddress.Create':
+            ret = AddressUtil.get_pegin_address(
+                req.get('fedpegscript', ''),
+                pubkey=req.get('pubkey', ''),
+                redeem_script=req.get('redeemScript', ''),
+                hash_type=req.get('hashType', 'p2sh-p2wsh'),
+                mainchain_network=req.get('network', 'mainnet'))
+            resp = {
+                'mainchainAddress': ret[0],
+                'claimScript': ret[1],
+                'tweakFedpegscript': ret[2],
+            }
+
+        else:
+            raise Exception('unknown name: ' + name)
+        assert_error(obj, name, case, error)
+
+        if name == 'PeginAddress.Create':
+            assert_equal(obj, name, case, exp,
+                         str(resp['mainchainAddress']), 'mainchainAddress')
+            assert_equal(obj, name, case, exp,
+                         str(resp['claimScript']), 'claimScript')
+            assert_equal(obj, name, case, exp,
+                         str(resp['tweakFedpegscript']), 'tweakFedpegscript')
+
+    except CfdError as err:
+        if not error:
+            raise err
+        assert_equal(obj, name, case, exp, err.message)
+
+
 class TestAddress(TestCase):
     def setUp(self):
         self.test_list = load_json_file('address_test.json')
@@ -311,3 +347,11 @@ class TestAddress(TestCase):
         self.assertEqual(
             'c10000000000000000000000000000000000000000000000000000000000000001a85b2107f791b26a84e7586c28cec7cb61202ed3d01944d832500f363782d675a85b2107f791b26a84e7586c28cec7cb61202ed3d01944d832500f363782d675',  # noqa: E501
             ctrlBlock.hex)
+
+
+class TestElementsAddress(TestCase):
+    def setUp(self):
+        self.test_list = load_json_file('elements_address_test.json')
+
+    def test_pegin_address(self):
+        exec_test(self, 'PeginAddress', test_pegin_address_func)

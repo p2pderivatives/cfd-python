@@ -883,7 +883,7 @@ class Psbt:
             util.call_func(
                 'CfdSetPsbtSighashType', handle.get_handle(),
                 tx_handle.get_handle(), str(
-                    outpoint.txid), outpoint.vout, sighash.get_type())
+                    outpoint.txid), outpoint.vout, sighash.value)
             self._update_base64(util, handle, tx_handle)
 
     ##

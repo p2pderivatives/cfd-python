@@ -66,14 +66,31 @@ def test_transaction_func1(obj, name, case, req, exp, error):
                     address=output.get('address', ''),
                     locking_script=output.get('directLockingScript', ''))
                 resp.update_txout_amount(index, output['amount'])
+        elif name == 'Transaction.SplitTxOut':
+            txouts = []
+            for output in req.get('txouts', []):
+                txouts.append(TxOut(
+                    amount=output['amount'], address=output.get('address', ''),
+                    locking_script=output.get('directLockingScript', '')))
+            resp.split_txout(req['index'], txouts)
         elif name == 'Transaction.UpdateWitnessStack':
-            # FIXME impl
-            return True
-
+            txin = req['txin']
+            witness = txin['witnessStack']
+            data = witness['hex']
+            if witness.get('derEncode', False) and (
+                    witness.get('type', '') == 'sign'):
+                sign_param = SignParameter.encode_by_der(
+                    data, sighashtype=witness.get('sighashType', 'all'))
+                data = sign_param.hex
+            resp.update_witness_stack(
+                OutPoint(txin['txid'], txin['vout']),
+                witness.get('index', 0), data)
         else:
             return False
         assert_error(obj, name, case, error)
 
+        if exp['hex'] != str(resp):
+            print('hex =', str(resp))
         assert_equal(obj, name, case, exp, str(resp), 'hex')
 
     except CfdError as err:
@@ -96,7 +113,8 @@ def test_transaction_func2(obj, name, case, req, exp, error):
             utxos = load_utxo_list(req)
             _sighashtype = SigHashType.get(
                 txin.get('sighashType', 'all'),
-                txin.get('sighashAnyoneCanPay', False))
+                anyone_can_pay=txin.get('sighashAnyoneCanPay', False),
+                is_rangeproof=txin.get('sighashRangeproof', False))
             resp.sign_with_privkey(
                 OutPoint(txin['txid'], txin['vout']),
                 txin['hashType'],
@@ -114,7 +132,8 @@ def test_transaction_func2(obj, name, case, req, exp, error):
             for param in txin.get('signParams', []):
                 _sighashtype = SigHashType.get(
                     param.get('sighashType', 'all'),
-                    param.get('sighashAnyoneCanPay', False))
+                    anyone_can_pay=param.get('sighashAnyoneCanPay', False),
+                    is_rangeproof=param.get('sighashRangeproof', False))
                 encode_der = False
                 if param.get('type', '') == 'sign':
                     encode_der = True
@@ -130,7 +149,8 @@ def test_transaction_func2(obj, name, case, req, exp, error):
             param = txin['signParam']
             _sighashtype = SigHashType.get(
                 param.get('sighashType', 'all'),
-                param.get('sighashAnyoneCanPay', False))
+                anyone_can_pay=param.get('sighashAnyoneCanPay', False),
+                is_rangeproof=param.get('sighashRangeproof', False))
             resp.add_pubkey_hash_sign(
                 OutPoint(txin['txid'], txin['vout']),
                 txin['hashType'],
@@ -144,7 +164,8 @@ def test_transaction_func2(obj, name, case, req, exp, error):
             for param in txin.get('signParams', []):
                 _sighashtype = SigHashType.get(
                     param.get('sighashType', 'all'),
-                    param.get('sighashAnyoneCanPay', False))
+                    anyone_can_pay=param.get('sighashAnyoneCanPay', False),
+                    is_rangeproof=param.get('sighashRangeproof', False))
                 sign = SignParameter(
                     param['hex'],
                     sighashtype=_sighashtype,
@@ -163,7 +184,8 @@ def test_transaction_func2(obj, name, case, req, exp, error):
             for param in txin.get('signParams', []):
                 _sighashtype = SigHashType.get(
                     param.get('sighashType', 'all'),
-                    param.get('sighashAnyoneCanPay', False))
+                    anyone_can_pay=param.get('sighashAnyoneCanPay', False),
+                    is_rangeproof=param.get('sighashRangeproof', False))
                 try:
                     sign = SignParameter(
                         param['hex'],
@@ -184,7 +206,8 @@ def test_transaction_func2(obj, name, case, req, exp, error):
         elif name == 'Transaction.AddTaprootSchnorrSign':
             _sighashtype = SigHashType.get(
                 txin.get('sighashType', 'default'),
-                txin.get('sighashAnyoneCanPay', False))
+                anyone_can_pay=txin.get('sighashAnyoneCanPay', False),
+                is_rangeproof=txin.get('sighashRangeproof', False))
             resp.add_taproot_sign(
                 OutPoint(txin['txid'], txin['vout']),
                 signature=txin['signature'],
@@ -196,7 +219,8 @@ def test_transaction_func2(obj, name, case, req, exp, error):
             for param in txin.get('signParams', []):
                 _sighashtype = SigHashType.get(
                     param.get('sighashType', 'default'),
-                    param.get('sighashAnyoneCanPay', False))
+                    anyone_can_pay=param.get('sighashAnyoneCanPay', False),
+                    is_rangeproof=param.get('sighashRangeproof', False))
                 try:
                     sign = SignParameter(
                         param['hex'],
@@ -247,7 +271,8 @@ def test_transaction_func2(obj, name, case, req, exp, error):
                 pubkey = txin['pubkey'] if not script else ''
                 _sighashtype = SigHashType.get(
                     txin.get('sighashType', 'all'),
-                    txin.get('sighashAnyoneCanPay', False))
+                    anyone_can_pay=txin.get('sighashAnyoneCanPay', False),
+                    is_rangeproof=txin.get('sighashRangeproof', False))
                 sighash = resp.get_sighash(
                     OutPoint(txin['txid'], txin['vout']),
                     txin['hashType'],
@@ -318,7 +343,8 @@ def test_transaction_func3(obj, name, case, req, exp, error):
             script = key_data['hex'] if key_data['type'] != 'pubkey' else ''
             _sighashtype = SigHashType.get(
                 txin.get('sighashType', 'all'),
-                txin.get('sighashAnyoneCanPay', False))
+                anyone_can_pay=txin.get('sighashAnyoneCanPay', False),
+                is_rangeproof=txin.get('sighashRangeproof', False))
             resp = resp.get_sighash(
                 OutPoint(txin['txid'], txin['vout']),
                 txin['hashType'],
@@ -337,6 +363,21 @@ def test_transaction_func3(obj, name, case, req, exp, error):
             txin = req['txin']
             index = resp.get_txin_index(txid=txin['txid'], vout=txin['vout'])
             resp = len(resp.txin_list[index].witness_stack)
+        elif name == 'Transaction.GetTxInIndex':
+            resp = Transaction.from_hex(req['tx'])
+            resp = resp.get_txin_index(txid=req['txid'], vout=req['vout'])
+        elif name == 'Transaction.GetTxOutIndex':
+            resp = Transaction.from_hex(req['tx'])
+            index = resp.get_txout_index(
+                address=req.get('address', ''),
+                locking_script=req.get('directLockingScript', ''))
+            indexes = resp.get_txout_indexes(
+                address=req.get('address', ''),
+                locking_script=req.get('directLockingScript', ''))
+            resp = {
+                'index': index,
+                'indexes': indexes,
+            }
         else:
             return False
         assert_error(obj, name, case, error)
@@ -351,6 +392,17 @@ def test_transaction_func3(obj, name, case, req, exp, error):
             assert_match(obj, name, case, exp_json, resp, 'json')
         elif name == 'Transaction.GetWitnessStackNum':
             assert_equal(obj, name, case, exp, resp, 'count')
+        elif name == 'Transaction.GetTxInIndex':
+            assert_equal(obj, name, case, exp, resp, 'index')
+        elif name == 'Transaction.GetTxOutIndex':
+            assert_equal(obj, name, case, exp, resp['index'], 'index')
+            assert_match(obj, name, case, len(
+                exp['indexes']), len(resp['indexes']), 'indexes')
+            exp_list = exp['indexes']
+            idx_list = resp['indexes']
+            for i in range(len(exp_list)):
+                assert_match(obj, name, case, exp_list[i],
+                             idx_list[i], f'indexes.${i}')
         else:
             assert_equal(obj, name, case, exp, str(resp), 'sighash')
 

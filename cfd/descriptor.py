@@ -3,10 +3,10 @@
 # @file descriptor.py
 # @brief hdwallet function implements file.
 # @note Copyright 2020 CryptoGarage
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 from .util import get_util, JobHandle, CfdError
 from .address import Address, AddressUtil
-from .key import Network, Pubkey
+from .key import Network, Pubkey, SchnorrPubkey
 from .hdwallet import ExtPubkey, ExtPrivkey
 from .script import HashType, Script
 from enum import Enum
@@ -49,6 +49,12 @@ class DescriptorScriptType(Enum):
     ##
     # raw
     RAW = 10
+    ##
+    # miniscript(internal)
+    MINISCRIPT = 11
+    ##
+    # taproot
+    TAPROOT = 12
 
     ##
     # @brief get string.
@@ -95,6 +101,9 @@ class DescriptorKeyType(Enum):
     ##
     # bip32 (ext privkey)
     BIP32_PRIV = 3
+    ##
+    # schnorr pubkey
+    SCHNORR_PUBKEY = 4
 
     ##
     # @brief get string.
@@ -106,6 +115,8 @@ class DescriptorKeyType(Enum):
             return 'extPubkey'
         elif self == DescriptorKeyType.BIP32_PRIV:
             return 'extPrivkey'
+        elif self == DescriptorKeyType.SCHNORR_PUBKEY:
+            return 'schnorrPubkey'
         return self.name
 
     ##
@@ -132,6 +143,8 @@ class DescriptorKeyType(Enum):
                 return DescriptorKeyType.BIP32
             elif _type == 'extprivkey':
                 return DescriptorKeyType.BIP32_PRIV
+            elif _type == 'schnorrpubkey':
+                return DescriptorKeyType.SCHNORR_PUBKEY
         raise CfdError(
             error_code=1,
             message='Error: Invalid type.')
@@ -157,6 +170,10 @@ class DescriptorKeyData:
     # @var ext_privkey
     # ext privkey
     ext_privkey: Union['ExtPrivkey', str]
+    ##
+    # @var schnorr_pubkey
+    # schnorr pubkey
+    schnorr_pubkey: Union['SchnorrPubkey', str]
 
     ##
     # @brief constructor.
@@ -164,14 +181,21 @@ class DescriptorKeyData:
     # @param[in] pubkey         pubkey
     # @param[in] ext_pubkey     ext pubkey
     # @param[in] ext_privkey    ext privkey
+    # @param[in] schnorr_pubkey     schnorr pubkey
     def __init__(
             self,
             key_type=DescriptorKeyType.NULL,
             pubkey='',
             ext_pubkey='',
-            ext_privkey=''):
+            ext_privkey='',
+            schnorr_pubkey=''):
         self.key_type = DescriptorKeyType.get(key_type)
-        self.pubkey = pubkey if isinstance(pubkey, str) else Pubkey(pubkey)
+        if pubkey is None:
+            self.pubkey = ''
+        elif self.key_type == DescriptorKeyType.SCHNORR_PUBKEY:
+            self.pubkey = ''
+        else:
+            self.pubkey = pubkey if isinstance(pubkey, str) else Pubkey(pubkey)
         if ext_pubkey is None:
             self.ext_pubkey = ''
         elif isinstance(ext_pubkey, str):
@@ -185,6 +209,16 @@ class DescriptorKeyData:
         else:
             self.ext_privkey = ExtPrivkey(ext_privkey)
 
+        if schnorr_pubkey is None:
+            self.schnorr_pubkey = ''
+        elif isinstance(schnorr_pubkey, str):
+            self.schnorr_pubkey = schnorr_pubkey
+        else:
+            self.schnorr_pubkey = SchnorrPubkey(schnorr_pubkey)
+        if self.key_type == DescriptorKeyType.SCHNORR_PUBKEY and (
+                not self.schnorr_pubkey):
+            self.schnorr_pubkey = str(pubkey)
+
     ##
     # @brief get string.
     # @return descriptor.
@@ -195,6 +229,8 @@ class DescriptorKeyData:
             return str(self.ext_pubkey)
         elif self.key_type == DescriptorKeyType.BIP32_PRIV:
             return str(self.ext_privkey)
+        elif self.key_type == DescriptorKeyType.SCHNORR_PUBKEY:
+            return str(self.schnorr_pubkey)
         return ''
 
 
@@ -227,6 +263,10 @@ class DescriptorScriptData:
     # redeem script for script hash
     redeem_script: Union[str, 'Script']
     ##
+    # @var tree_string
+    # taproot script tree string.
+    tree_string: str
+    ##
     # @var key_data
     # key data
     key_data: Optional['DescriptorKeyData']
@@ -250,6 +290,7 @@ class DescriptorScriptData:
     # @param[in] key_data       key data
     # @param[in] key_list       key list
     # @param[in] multisig_require_num   multisig require num
+    # @param[in] tree_string            taproot script tree string.
     def __init__(
             self, script_type: 'DescriptorScriptType', depth: int,
             hash_type: 'HashType', address,
@@ -257,7 +298,8 @@ class DescriptorScriptData:
             redeem_script='',
             key_data: Optional['DescriptorKeyData'] = None,
             key_list: List['DescriptorKeyData'] = [],
-            multisig_require_num: int = 0):
+            multisig_require_num: int = 0,
+            tree_string: str = ''):
         self.script_type = script_type
         self.depth = depth
         self.hash_type = hash_type
@@ -268,6 +310,7 @@ class DescriptorScriptData:
         self.key_data = key_data
         self.key_list = key_list
         self.multisig_require_num = multisig_require_num
+        self.tree_string = tree_string
 
 
 ##
@@ -304,8 +347,9 @@ class Descriptor:
         self.network = Network.get(network)
         self.path = str(path)
         self.descriptor = self._verify(str(descriptor))
-        self.script_list = self._parse()
-        self.data = self._analyze()
+        parse_data = self._parse()
+        self.script_list = parse_data[0]
+        self.data = parse_data[1]
 
     ##
     # @brief verify descriptor.
@@ -320,8 +364,10 @@ class Descriptor:
 
     ##
     # @brief parse descriptor.
-    # @return script list
-    def _parse(self) -> List['DescriptorScriptData']:
+    # @retval[0] script list
+    # @retval[1] root script
+    def _parse(self) -> Tuple[
+            List['DescriptorScriptData'], 'DescriptorScriptData']:
         util = get_util()
         with util.create_handle() as handle:
             work_handle, max_index = util.call_func(
@@ -337,6 +383,30 @@ class Descriptor:
                         'CfdGetDescriptorMultisigKey',
                         handle.get_handle(), desc_handle.get_handle(),
                         index)
+
+                script_type, locking_script,\
+                    address, hash_type, redeem_script, key_type,\
+                    pubkey, ext_pubkey, ext_privkey, schnorr_pubkey,\
+                    tree_string, is_multisig, max_key_num, \
+                    req_sig_num = util.call_func(
+                        'CfdGetDescriptorRootData',
+                        handle.get_handle(), desc_handle.get_handle())
+                all_key_list = []
+                if key_type != 0:
+                    key_data = DescriptorKeyData(
+                        key_type, pubkey, ext_pubkey, ext_privkey,
+                        schnorr_pubkey)
+                    all_key_list.append(key_data)
+                _script_type = DescriptorScriptType.get(script_type)
+                _hash_type = HashType.P2SH
+                if _script_type != DescriptorScriptType.RAW:
+                    _hash_type = HashType.get(hash_type)
+                root_data = DescriptorScriptData(
+                    _script_type, 0, _hash_type, address,
+                    locking_script, redeem_script,
+                    key_list=all_key_list,
+                    multisig_require_num=req_sig_num,
+                    tree_string=tree_string)
 
                 script_list = []
                 for i in range(max_index + 1):
@@ -357,7 +427,8 @@ class Descriptor:
                             DescriptorScriptType.COMBO,
                             DescriptorScriptType.PK,
                             DescriptorScriptType.PKH,
-                            DescriptorScriptType.WPKH}:
+                            DescriptorScriptType.WPKH,
+                            DescriptorScriptType.TAPROOT}:
                         data.key_data = DescriptorKeyData(
                             key_type, pubkey, ext_pubkey, ext_privkey)
                         data.address = AddressUtil.parse(address, hash_type)
@@ -373,6 +444,7 @@ class Descriptor:
                             for i in range(max_key_num):
                                 key_info = DescriptorKeyData(*get_key(i))
                                 key_list.append(key_info)
+                                all_key_list.append(key_info)
                             data.key_list = key_list
                             data.multisig_require_num = req_sig_num
                     elif _script_type == DescriptorScriptType.RAW:
@@ -384,73 +456,8 @@ class Descriptor:
                     if _script_type == DescriptorScriptType.COMBO:
                         # TODO: combo data is top only.
                         break
-                return script_list
-
-    ##
-    # @brief analyze descriptor.
-    # @return reference data
-    def _analyze(self) -> 'DescriptorScriptData':
-        if (self.script_list[0].hash_type in [
-                HashType.P2WSH, HashType.P2SH]) and (
-                len(self.script_list) > 1) and (
-                self.script_list[1].hash_type == HashType.P2PKH):
-            data = DescriptorScriptData(
-                self.script_list[0].script_type,
-                self.script_list[0].depth,
-                self.script_list[0].hash_type,
-                self.script_list[0].address,
-                self.script_list[0].locking_script,
-                self.script_list[1].locking_script,
-                self.script_list[1].key_data)
-            return data
-
-        if (self.script_list[0].hash_type == HashType.P2SH_P2WSH) and (
-                len(self.script_list) > 2) and (
-                self.script_list[2].hash_type == HashType.P2PKH):
-            data = DescriptorScriptData(
-                self.script_list[0].script_type,
-                self.script_list[0].depth,
-                self.script_list[0].hash_type,
-                self.script_list[0].address,
-                self.script_list[0].locking_script,
-                self.script_list[1].redeem_script,
-                self.script_list[2].key_data)
-            return data
-        if len(self.script_list) == 1:
-            return self.script_list[0]
-
-        if self.script_list[0].hash_type == HashType.P2SH_P2WSH:
-            if self.script_list[1].multisig_require_num > 0:
-                multisig_require_num = self.script_list[1].multisig_require_num
-                data = DescriptorScriptData(
-                    self.script_list[0].script_type,
-                    self.script_list[0].depth,
-                    self.script_list[0].hash_type,
-                    self.script_list[0].address,
-                    self.script_list[0].locking_script,
-                    self.script_list[1].redeem_script,
-                    key_list=self.script_list[1].key_list,
-                    multisig_require_num=multisig_require_num)
-                return data
-            else:
-                data = DescriptorScriptData(
-                    self.script_list[0].script_type,
-                    self.script_list[0].depth,
-                    self.script_list[0].hash_type,
-                    self.script_list[0].address,
-                    self.script_list[0].locking_script,
-                    self.script_list[1].redeem_script)
-                return data
-        elif self.script_list[0].hash_type == HashType.P2SH_P2WPKH:
-            data = DescriptorScriptData(
-                self.script_list[0].script_type,
-                self.script_list[0].depth,
-                self.script_list[0].hash_type,
-                self.script_list[0].address,
-                self.script_list[0].locking_script,
-                key_data=self.script_list[1].key_data)
-            return data
-        return self.script_list[0]
+                root_data.key_list = all_key_list
+                return script_list, root_data
 
     ##
     # @brief get string.

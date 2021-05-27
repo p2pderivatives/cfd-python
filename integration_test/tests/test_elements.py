@@ -1,11 +1,11 @@
 import unittest
 from helper import RpcWrapper, get_utxo
 from cfd.address import AddressUtil
-from cfd.key import SigHashType
+from cfd.key import SigHashType, Network
 from cfd.hdwallet import HDWallet
 from cfd.script import HashType
 from cfd.descriptor import parse_descriptor
-from cfd.transaction import Transaction
+from cfd.transaction import Transaction, OutPoint
 from cfd.confidential_address import ConfidentialAddress
 from cfd.confidential_transaction import ConfidentialTransaction,\
     ConfidentialTxIn, ConfidentialTxOut, ElementsUtxoData,\
@@ -272,7 +272,58 @@ def get_elements_config(test_obj):
         test_obj.sidechaininfo['pegin_confirmation_depth']
 
 
-def update_pegin_tx(test_obj, pegin_tx, btc_tx, pegin_address):
+def create_pegin_tx(test_obj, btc_tx, pegin_address,
+                    txout_proof, claim_script) -> str:
+    btc_tx_obj = Transaction.from_hex(btc_tx)
+    btc_txid = btc_tx_obj.txid
+    btc_txout_index = btc_tx_obj.get_txout_index(address=pegin_address)
+    btc_amount = btc_tx_obj.txout_list[btc_txout_index].amount
+    btc_size = len(btc_tx) / 2
+
+    # add txout
+    tx = ConfidentialTransaction.create(2, 0)
+    tx.add_pegin_input(outpoint=OutPoint(btc_txid, btc_txout_index),
+                       amount=btc_amount,
+                       asset=test_obj.pegged_asset,
+                       mainchain_genesis_block_hash=test_obj.parent_blockhash,
+                       claim_script=claim_script,
+                       mainchain_tx=btc_tx,
+                       txout_proof=txout_proof)
+    fee_addr = test_obj.addr_dic['fee']
+    tx.add_txout(amount=1,
+                 address=test_obj.ct_addr_dic[str(fee_addr)],
+                 asset=test_obj.pegged_asset)
+    target_index = 0
+    send2_amount = 1000
+    tx.add_txout(amount=send2_amount,
+                 address=test_obj.ct_addr_dic[str(test_obj.addr_dic['main'])],
+                 asset=test_obj.pegged_asset)
+    tx.add_fee_txout(amount=1, asset=test_obj.pegged_asset)
+
+    # calc fee
+    pegin_utxo = ElementsUtxoData(
+        txid=btc_txid, vout=btc_txout_index,
+        amount=btc_amount,
+        descriptor='wpkh({})'.format('02' * 33),  # dummy
+        asset=test_obj.pegged_asset,
+        is_pegin=True, pegin_btc_tx_size=int(btc_size),
+        fedpeg_script=test_obj.fedpegscript)
+    utxo_list = [pegin_utxo]
+    calc_fee, _, _ = tx.estimate_fee(utxo_list, test_obj.pegged_asset)
+    # update fee
+    tx.update_txout_fee_amount(calc_fee)
+
+    # change amount
+    new_amount = btc_amount - calc_fee - send2_amount
+    tx.update_txout_amount(target_index, new_amount)
+
+    # blind
+    print('before blind tx=', str(tx))
+    tx.blind_txout(utxo_list)
+    return str(tx)
+
+
+def update_pegin_tx(test_obj, pegin_tx, btc_tx, pegin_address) -> str:
     pegin_tx2 = pegin_tx
     btc_tx_obj = Transaction.from_hex(btc_tx)
     btc_txid = btc_tx_obj.txid
@@ -340,6 +391,7 @@ def update_pegin_tx(test_obj, pegin_tx, btc_tx, pegin_address):
 
     # blind
     fee_ct_addr = test_obj.ct_addr_dic[str(fee_addr)]
+    print('before blind tx=', str(tx))
     tx.blind_txout(utxo_list,
                    confidential_address_list=[fee_ct_addr])
     return str(tx)
@@ -362,10 +414,20 @@ def test_pegin(test_obj):
     btc_rpc = test_obj.btcConn.get_rpc()
     elm_rpc = test_obj.elmConn.get_rpc()
 
-    # generate pegin address by RPC
-    pegin_addr_info = elm_rpc.getpeginaddress()
-    pegin_address = pegin_addr_info['mainchain_address']
-    claim_script = pegin_addr_info['claim_script']
+    # generate pegin address
+    path = '{}/0/0'.format(ROOT_PATH)
+    main_ext_sk = test_obj.hdwallet.get_privkey(path=path)
+    main_sk = str(main_ext_sk.privkey)
+    main_pk = str(main_ext_sk.privkey.pubkey)
+    pegin_address, claim_script, _ = AddressUtil.get_pegin_address(
+        fedpeg_script=test_obj.fedpegscript,
+        pubkey=main_pk,
+        mainchain_network=Network.REGTEST)
+    pegin_address = str(pegin_address)
+    claim_script = claim_script.hex
+    # pegin_addr_info = elm_rpc.getpeginaddress()
+    # pegin_address = pegin_addr_info['mainchain_address']
+    # claim_script = pegin_addr_info['claim_script']
 
     for i in range(3):
         try:
@@ -385,12 +447,20 @@ def test_pegin(test_obj):
 
             # pegin transaction for fee address
             tx_data = btc_rpc.gettransaction(txid)['hex']
+            tx = Transaction(tx_data)
+            vout = tx.get_txout_index(pegin_address)
+            pegged_amount = tx.txout_list[vout].amount
             txout_proof = btc_rpc.gettxoutproof([txid])
-            pegin_tx = elm_rpc.createrawpegin(
-                tx_data, txout_proof, claim_script)['hex']
-            pegin_tx = update_pegin_tx(
-                test_obj, pegin_tx, tx_data, pegin_address)
-            pegin_tx = elm_rpc.signrawtransactionwithwallet(pegin_tx)['hex']
+            # pegin_tx = elm_rpc.createrawpegin(
+            #     tx_data, txout_proof, claim_script)['hex']
+            # pegin_tx = update_pegin_tx(
+            #     test_obj, pegin_tx, tx_data, pegin_address)
+            pegin_tx = create_pegin_tx(test_obj, tx_data, pegin_address,
+                                       txout_proof, claim_script)
+            ct = ConfidentialTransaction(pegin_tx)
+            ct.sign_with_privkey(
+                OutPoint(txid, vout), HashType.P2WPKH, main_sk, pegged_amount)
+            pegin_tx = str(ct)
             # broadcast
             print(ConfidentialTransaction.parse_to_json(
                 pegin_tx, network=NETWORK))
@@ -461,7 +531,9 @@ def test_elements_pkh(test_obj):
         utxo = search_utxos(test_obj, utxo_list, txin.outpoint)
         tx.sign_with_privkey(txin.outpoint, fee_desc.data.hash_type, fee_sk,
                              value=utxo.value,
-                             sighashtype=SigHashType.ALL)
+                             sighashtype=SigHashType.ALL_PLUS_RANGEPROOF)
+    print('after sign_with_privkey tx')
+    print(str(tx))
     # broadcast
     print(ConfidentialTransaction.parse_to_json(str(tx), network=NETWORK))
     txid = elm_rpc.sendrawtransaction(str(tx))
@@ -523,6 +595,8 @@ def test_elements_pkh(test_obj):
         blind_utxo_list.append(search_utxos(
             test_obj, join_utxo_list, txin.outpoint))
     tx2.blind_txout(blind_utxo_list)
+    print('before sign_with_privkey')
+    print(ConfidentialTransaction.parse_to_json(str(tx2), network=NETWORK))
     # add sign
     for txin in tx2.txin_list:
         utxo = search_utxos(test_obj, blind_utxo_list, txin.outpoint)
@@ -530,7 +604,7 @@ def test_elements_pkh(test_obj):
         sk = test_obj.hdwallet.get_privkey(path=path).privkey
         tx2.sign_with_privkey(txin.outpoint, utxo.descriptor.data.hash_type,
                               sk, value=utxo.value,
-                              sighashtype=SigHashType.ALL)
+                              sighashtype=SigHashType.ALL_PLUS_RANGEPROOF)
     # broadcast
     print(ConfidentialTransaction.parse_to_json(str(tx2), network=NETWORK))
     txid = elm_rpc.sendrawtransaction(str(tx2))

@@ -27,7 +27,7 @@ def test_descriptor_func(obj, name, case, req, exp, error):
         assert_error(obj, name, case, error)
 
         assert_equal(obj, name, case, exp, str(resp), 'descriptor')
-        if isinstance(resp, Descriptor):
+        if isinstance(resp, Descriptor) and (name == 'Descriptor.Parse'):
             if resp.network == Network.ELEMENTS_REGTEST:
                 assert_match(obj, name, case,
                              Network.ELEMENTS_REGTEST.as_str(),
@@ -68,17 +68,19 @@ def test_descriptor_func(obj, name, case, req, exp, error):
                 if data.key_data is not None:
                     check_keys(data.key_data, exp, depth)
 
-                if depth != -1:
-                    keys = exp.get('keys', [])
-                    assert_match(obj, name, case, len(keys),
-                                 len(data.key_list), 'keyListNum')
-                    for index, data in enumerate(data.key_list):
-                        check_keys(data, keys[index], depth, index)
+                if depth == -1:
+                    assert_equal(obj, name, case, exp,
+                                 str(data.tree_string),
+                                 'treeString', 'treeString:{}'.format(depth))
+
+                keys = exp.get('keys', [])
+                assert_match(obj, name, case, len(keys),
+                             len(data.key_list), 'keyListNum')
+                for index, data in enumerate(data.key_list):
+                    check_keys(data, keys[index], depth, index)
 
             check_descriptor_item(resp.data, exp)
-            if name == 'Descriptor.Checksum':
-                pass
-            elif resp.data.script_type == DescriptorScriptType.COMBO:
+            if resp.data.script_type == DescriptorScriptType.COMBO:
                 scripts = exp.get('scripts', [])
                 assert_match(obj, name, case, 1,
                              len(resp.script_list), 'scriptListNum')
@@ -94,6 +96,7 @@ def test_descriptor_func(obj, name, case, req, exp, error):
                     check_descriptor_item(data, scripts[index], index)
 
             if exp.get('includeMultisig', False):
+                # No check is required, as it is checked by the 'keys'.
                 pass
 
     except CfdError as err:
