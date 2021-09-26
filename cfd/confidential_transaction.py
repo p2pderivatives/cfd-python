@@ -244,10 +244,11 @@ class ConfidentialValue:
                 to_hex_string(blind_factor))
             return ConfidentialValue(commitment)
 
-
 ##
 # @class ElementsUtxoData
 # @brief elements utxo class.
+
+
 class ElementsUtxoData(UtxoData):
     ##
     # @var outpoint
@@ -282,9 +283,13 @@ class ElementsUtxoData(UtxoData):
     # pegin btc transaction size
     pegin_btc_tx_size: int
     ##
-    # @var fedpeg_script
-    # fedpeg script
-    fedpeg_script: 'Script'
+    # @var pegin_txoutproof_size
+    # pegin txoutproof size
+    pegin_txoutproof_size: int
+    ##
+    # @var claim_script
+    # claim script
+    claim_script: 'Script'
     ##
     # @var asset_blinder
     # asset blind factor
@@ -307,8 +312,9 @@ class ElementsUtxoData(UtxoData):
     # @param[in] is_issuance            issuance flag
     # @param[in] is_blind_issuance      blinded issuance flag
     # @param[in] is_pegin               pegin flag
+    # @param[in] claim_script           claim script
     # @param[in] pegin_btc_tx_size      pegin btc tx size
-    # @param[in] fedpeg_script          fedpeg script
+    # @param[in] pegin_txoutproof_size  pegin txoutproof size
     # @param[in] asset_blinder          asset blind factor
     # @param[in] amount_blinder         amount blind factor
     def __init__(
@@ -319,7 +325,8 @@ class ElementsUtxoData(UtxoData):
             value='', asset='',
             is_issuance: bool = False, is_blind_issuance: bool = False,
             is_pegin: bool = False,
-            pegin_btc_tx_size: int = 0, fedpeg_script='',
+            claim_script='',
+            pegin_btc_tx_size: int = 0, pegin_txoutproof_size: int = 0,
             asset_blinder='', amount_blinder=''):
         super().__init__(
             outpoint=outpoint, txid=txid, vout=vout,
@@ -331,7 +338,8 @@ class ElementsUtxoData(UtxoData):
         self.is_blind_issuance = is_blind_issuance
         self.is_pegin = is_pegin
         self.pegin_btc_tx_size = int(pegin_btc_tx_size)
-        self.fedpeg_script = Script(fedpeg_script)
+        self.pegin_txoutproof_size = int(pegin_txoutproof_size)
+        self.claim_script = Script(claim_script)
         self.asset_blinder = BlindFactor.create(asset_blinder)
         self.amount_blinder = BlindFactor.create(amount_blinder)
         if self.amount == 0:
@@ -404,6 +412,32 @@ class UnblindData:
     # @var amount_blinder
     # amount blind factor
     amount_blinder: 'BlindFactor'
+
+    ##
+    # @brief unblind data.
+    # @param[in] blinding_key           blinding key
+    # @param[in] locking_script         locking script
+    # @param[in] asset_commitment       asset commitment
+    # @param[in] value_commitment       value commitment
+    # @param[in] commitment_nonce       commitment nonce
+    # @param[in] rangeproof             rangeproof
+    # @return unblind data
+    @classmethod
+    def unblind(cls, blinding_key, locking_script, asset_commitment,
+                value_commitment, commitment_nonce,
+                rangeproof) -> 'UnblindData':
+        _privkey = to_hex_string(blinding_key)
+        _script = to_hex_string(locking_script)
+        _asset = to_hex_string(asset_commitment)
+        _value = to_hex_string(value_commitment)
+        _nonce = to_hex_string(commitment_nonce)
+        _rangeproof = to_hex_string(rangeproof)
+        util = get_util()
+        with util.create_handle() as handle:
+            asset, amount, abf, vbf = util.call_func(
+                'CfdUnblindTxOutData', handle.get_handle(), _privkey,
+                _script, _asset, _value, _nonce, _rangeproof)
+            return UnblindData(asset, amount, abf, vbf)
 
     ##
     # @brief constructor.
@@ -1385,6 +1419,42 @@ class ConfidentialTransaction(_TransactionBase):
         self._update_tx_all()
 
     ##
+    # @brief check pegout output.
+    # @param[in] index          txout index
+    # @retval true      pegout output
+    # @retval false     other output
+    def has_pegout(self, index: int) -> bool:
+        try:
+            util = get_util()
+            with util.create_handle() as handle, self._get_handle(
+                    handle, self.network) as tx_handle:
+                util.call_func(
+                    'CfdHasPegoutConfidentialTxOut', handle.get_handle(),
+                    tx_handle.get_handle(), index)
+            return True
+        except CfdError as err:
+            if err.error_code == CfdErrorCode.NOT_FOUND.value:
+                return False
+            else:
+                raise err
+
+    ##
+    # @brief get pegout address.
+    # @param[in] index                  txout index
+    # @param[in] mainchain_network      mainchain network
+    # @return pegout address
+    def get_pegout_address(self, index: int,
+                           mainchain_network=Network.MAINNET) -> 'Address':
+        _network = Network.get(mainchain_network)
+        util = get_util()
+        with util.create_handle() as handle, self._get_handle(
+                handle, self.network) as tx_handle:
+            addr = util.call_func(
+                'CfdGetPegoutMainchainAddress', handle.get_handle(),
+                tx_handle.get_handle(), index, _network.value)
+        return AddressUtil.parse(addr)
+
+    ##
     # @brief blind transaction output.
     # @param[in] utxo_list                      utxo list
     # @param[in] confidential_address_list      confidential address list
@@ -1905,13 +1975,14 @@ class ConfidentialTransaction(_TransactionBase):
                            'CfdFreeEstimateFeeHandle') as tx_handle:
                 for utxo in utxo_list:
                     util.call_func(
-                        'CfdAddTxInTemplateForEstimateFee',
+                        'CfdAddTxInputForEstimateFee',
                         handle.get_handle(), tx_handle.get_handle(),
                         str(utxo.outpoint.txid), utxo.outpoint.vout,
                         str(utxo.descriptor), str(utxo.asset),
                         utxo.is_issuance, utxo.is_blind_issuance,
-                        utxo.is_pegin, int(utxo.pegin_btc_tx_size),
-                        to_hex_string(utxo.fedpeg_script),
+                        utxo.is_pegin, to_hex_string(utxo.claim_script),
+                        int(utxo.pegin_btc_tx_size),
+                        int(utxo.pegin_txoutproof_size),
                         to_hex_string(utxo.scriptsig_template))
 
                 set_opt(handle, tx_handle, _FeeOpt.EXPONENT, i_val=exponent)
@@ -1988,14 +2059,16 @@ class ConfidentialTransaction(_TransactionBase):
                            'CfdFreeFundRawTxHandle') as tx_handle:
                 for utxo in txin_utxo_list:
                     util.call_func(
-                        'CfdAddTxInTemplateForFundRawTx',
+                        'CfdAddTxInputForFundRawTx',
                         handle.get_handle(), tx_handle.get_handle(),
                         str(utxo.outpoint.txid), utxo.outpoint.vout,
                         utxo.amount, str(utxo.descriptor),
                         str(utxo.asset),
                         utxo.is_issuance, utxo.is_blind_issuance,
-                        utxo.is_pegin, int(utxo.pegin_btc_tx_size),
-                        to_hex_string(utxo.fedpeg_script),
+                        utxo.is_pegin,
+                        to_hex_string(utxo.claim_script),
+                        int(utxo.pegin_btc_tx_size),
+                        int(utxo.pegin_txoutproof_size),
                         to_hex_string(utxo.scriptsig_template))
                 for utxo in utxo_list:
                     util.call_func(

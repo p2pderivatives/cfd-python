@@ -2,6 +2,7 @@ import unittest
 from helper import RpcWrapper, get_utxo
 from cfd.address import AddressUtil
 from cfd.key import SigHashType, Network
+from cfd.block import Block
 from cfd.hdwallet import HDWallet
 from cfd.script import HashType
 from cfd.descriptor import parse_descriptor
@@ -272,13 +273,14 @@ def get_elements_config(test_obj):
         test_obj.sidechaininfo['pegin_confirmation_depth']
 
 
-def create_pegin_tx(test_obj, btc_tx, pegin_address,
+def create_pegin_tx(test_obj, btc_tx: 'Transaction', pegin_address,
                     txout_proof, claim_script) -> str:
-    btc_tx_obj = Transaction.from_hex(btc_tx)
+    btc_tx_obj = btc_tx
     btc_txid = btc_tx_obj.txid
     btc_txout_index = btc_tx_obj.get_txout_index(address=pegin_address)
     btc_amount = btc_tx_obj.txout_list[btc_txout_index].amount
-    btc_size = len(btc_tx) / 2
+    btc_size = len(str(btc_tx)) / 2
+    txoutproof_size = len(str(txout_proof)) / 2
 
     # add txout
     tx = ConfidentialTransaction.create(2, 0)
@@ -307,9 +309,13 @@ def create_pegin_tx(test_obj, btc_tx, pegin_address,
         descriptor='wpkh({})'.format('02' * 33),  # dummy
         asset=test_obj.pegged_asset,
         is_pegin=True, pegin_btc_tx_size=int(btc_size),
-        fedpeg_script=test_obj.fedpegscript)
+        pegin_txoutproof_size=int(txoutproof_size),
+        claim_script=claim_script)
     utxo_list = [pegin_utxo]
-    calc_fee, _, _ = tx.estimate_fee(utxo_list, test_obj.pegged_asset)
+    minimum_bits = 52
+    calc_fee, _, _ = tx.estimate_fee(
+        utxo_list, test_obj.pegged_asset, fee_rate=0.1,
+        minimum_bits=minimum_bits)
     # update fee
     tx.update_txout_fee_amount(calc_fee)
 
@@ -319,17 +325,19 @@ def create_pegin_tx(test_obj, btc_tx, pegin_address,
 
     # blind
     print('before blind tx=', str(tx))
-    tx.blind_txout(utxo_list)
+    tx.blind_txout(utxo_list, minimum_bits=minimum_bits)
     return str(tx)
 
 
-def update_pegin_tx(test_obj, pegin_tx, btc_tx, pegin_address) -> str:
+def update_pegin_tx(test_obj, pegin_tx, btc_tx, pegin_address,
+                    claim_script, txout_proof) -> str:
     pegin_tx2 = pegin_tx
     btc_tx_obj = Transaction.from_hex(btc_tx)
     btc_txid = btc_tx_obj.txid
     btc_txout_index = btc_tx_obj.get_txout_index(address=pegin_address)
     btc_amount = btc_tx_obj.txout_list[btc_txout_index].amount
     btc_size = len(btc_tx) / 2
+    txoutproof_size = len(txout_proof) / 2
 
     # decode
     tx = ConfidentialTransaction.from_hex(pegin_tx)
@@ -371,7 +379,8 @@ def update_pegin_tx(test_obj, pegin_tx, btc_tx, pegin_address) -> str:
         descriptor='wpkh({})'.format('02' * 33),  # dummy
         asset=test_obj.pegged_asset,
         is_pegin=True, pegin_btc_tx_size=int(btc_size),
-        fedpeg_script=test_obj.fedpegscript)
+        pegin_txoutproof_size=int(txoutproof_size),
+        claim_script=claim_script)
     utxo_list = [pegin_utxo]
     if utxo_amount > 0:
         for txin in tx.txin_list:
@@ -431,6 +440,7 @@ def test_pegin(test_obj):
 
     for i in range(3):
         try:
+            blk_cnt = btc_rpc.getblockcount() + 1
             # send bitcoin
             utxos = get_utxo(btc_rpc, [])
             amount = 0
@@ -444,18 +454,32 @@ def test_pegin(test_obj):
             # generate bitcoin 100 block
             addr = str(test_obj.addr_dic['btc'])
             btc_rpc.generatetoaddress(101, addr)
+            max_blk_cnt = btc_rpc.getblockcount()
+
+            txout_proof = None
+            for i in range(max_blk_cnt - blk_cnt):
+                blk_hash = btc_rpc.getblockhash(blk_cnt + i)
+                block_hex = btc_rpc.getblock(blk_hash, 0)
+                block = Block(block_hex)
+                if block.exist_txid(txid):
+                    tx_data, txout_proof = block.get_tx_data(txid)
+                    print(f'pegin block: {str(block)}')
+                    break
+
+            if txout_proof is None:
+                raise Exception('txoutproof is empty.')
 
             # pegin transaction for fee address
-            tx_data = btc_rpc.gettransaction(txid)['hex']
+            # tx_data = btc_rpc.gettransaction(txid)['hex']
             tx = Transaction(tx_data)
             vout = tx.get_txout_index(pegin_address)
             pegged_amount = tx.txout_list[vout].amount
-            txout_proof = btc_rpc.gettxoutproof([txid])
+            # txout_proof = btc_rpc.gettxoutproof([txid])
             # pegin_tx = elm_rpc.createrawpegin(
             #     tx_data, txout_proof, claim_script)['hex']
             # pegin_tx = update_pegin_tx(
-            #     test_obj, pegin_tx, tx_data, pegin_address)
-            pegin_tx = create_pegin_tx(test_obj, tx_data, pegin_address,
+            #     test_obj, pegin_tx, tx_data, pegin_address, txout_proof)
+            pegin_tx = create_pegin_tx(test_obj, tx, pegin_address,
                                        txout_proof, claim_script)
             ct = ConfidentialTransaction(pegin_tx)
             ct.sign_with_privkey(

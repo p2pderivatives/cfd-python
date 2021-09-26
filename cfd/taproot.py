@@ -97,16 +97,16 @@ class TapBranch:
         self.taget_node_str = ''
         self.tree_str = ''
         self.leaf_version = leaf_version
-        if tree_str or self.tapscript or self.hash.hex:
-            if tree_str:
-                temp_tree_str = tree_str
-            elif self.tapscript and self.tapscript.hex:
-                temp_tree_str = f'tl({self.tapscript.hex})'
-            elif self.hash.hex:
-                temp_tree_str = self.hash.hex
-            else:
-                temp_tree_str = ''
-            self._load(temp_tree_str)
+
+        if tree_str:
+            temp_tree_str = tree_str
+        elif self.tapscript and self.tapscript.hex:
+            temp_tree_str = f'tl({self.tapscript.hex})'
+        elif self.hash.hex:
+            temp_tree_str = self.hash.hex
+        else:
+            temp_tree_str = ''
+        self._load(temp_tree_str)
 
     ##
     # @brief get string.
@@ -234,6 +234,66 @@ class TapBranch:
             return ByteData(hash)
 
     ##
+    # @brief get taproot data.
+    # @param[in] internal_pubkey    internal pubkey
+    # @retval [0]   taproot schnorr pubkey. (for address)
+    # @retval [1]   tapleaf hash. (for sighash)
+    # @retval [2]   tapscript.
+    # @retval [3]   control block. (for witness stack)
+    def get_taproot_data(
+        self, internal_pubkey: 'SchnorrPubkey',
+    ) -> Tuple['SchnorrPubkey', 'ByteData', 'Script', 'ByteData']:
+        return self._get_taproot_data(internal_pubkey, self.tapscript)
+
+    ##
+    # @brief get taproot data.
+    # @param[in] internal_pubkey    internal pubkey
+    # @param[in] tapscript          tapscript
+    # @retval [0]   taproot schnorr pubkey. (for address)
+    # @retval [1]   tapleaf hash. (for sighash)
+    # @retval [2]   tapscript.
+    # @retval [3]   control block. (for witness stack)
+    def _get_taproot_data(
+        self, internal_pubkey: 'SchnorrPubkey',
+        tapscript: Optional['Script'] = None,
+    ) -> Tuple['SchnorrPubkey', 'ByteData', 'Script', 'ByteData']:
+        if not internal_pubkey:
+            raise CfdError(CfdErrorCode.ILLEGAL_STATE,
+                           'internal pubkey not found.')
+        _script = tapscript if isinstance(tapscript, Script) else Script('')
+        util = get_util()
+        with util.create_handle() as handle, TapBranch._get_handle(
+                util, handle) as tree_handle:
+            util.call_func(
+                'CfdSetScriptTreeFromString', handle.get_handle(),
+                tree_handle.get_handle(), self.tree_str,
+                to_hex_string(_script), self.leaf_version,
+                self.taget_node_str)
+            hash, tapleaf_hash, control_block = util.call_func(
+                'CfdGetTaprootScriptTreeHash', handle.get_handle(),
+                tree_handle.get_handle(), to_hex_string(internal_pubkey))
+            return SchnorrPubkey(hash), ByteData(tapleaf_hash), \
+                _script, ByteData(control_block)
+
+    ##
+    # @brief get tweaked privkey.
+    # @param[in] internal_privkey   internal privkey
+    # @return privkey.
+    def get_privkey(self, internal_privkey: 'Privkey') -> 'Privkey':
+        util = get_util()
+        with util.create_handle() as handle, TapBranch._get_handle(
+                util, handle) as tree_handle:
+            tapscript = self.tapscript.hex if self.tapscript else ''
+            util.call_func(
+                'CfdSetScriptTreeFromString', handle.get_handle(),
+                tree_handle.get_handle(), self.tree_str,
+                tapscript, self.leaf_version, self.taget_node_str)
+            tweaked_privkey = util.call_func(
+                'CfdGetTaprootTweakedPrivkey', handle.get_handle(),
+                tree_handle.get_handle(), to_hex_string(internal_privkey))
+            return Privkey(hex=tweaked_privkey)
+
+    ##
     # @brief load tree info.
     # @param[in] tree_str       tree string
     # @return void
@@ -257,7 +317,7 @@ class TapBranch:
                     'CfdSetInitialTapBranchByHash', handle.get_handle(),
                     tree_handle.get_handle(), self.hash.hex)
             else:
-                return  # do nothing
+                pass  # empty branch
             self.leaf_version, script, hash = util.call_func(
                 'CfdGetBaseTapLeaf', handle.get_handle(),
                 tree_handle.get_handle())
@@ -406,14 +466,14 @@ class TaprootScriptTree(TapBranch):
             return result
 
     ##
-    # @brief get script tree from string.
+    # @brief get script tree from string and key.
     # @param[in] tree_str           tree string.
     # @param[in] tapscript          tapscript
     # @param[in] target_nodes       target tapbranch hash list.
     # @param[in] internal_pubkey    internal pubkey
     # @return script tree object
     @classmethod
-    def from_string(
+    def from_string_and_key(
             cls, tree_str: str, tapscript: 'Script',
             target_nodes: List[Union['ByteData', str]] = [],
             internal_pubkey: Optional['SchnorrPubkey'] = None,
@@ -481,39 +541,9 @@ class TaprootScriptTree(TapBranch):
         if not pk:
             raise CfdError(CfdErrorCode.ILLEGAL_STATE,
                            'internal pubkey not found.')
-        util = get_util()
-        with util.create_handle() as handle, TapBranch._get_handle(
-                util, handle) as tree_handle:
-            if not self.tapscript:
-                raise CfdError(CfdErrorCode.ILLEGAL_STATE,
-                               'tapscript not found.')
-            util.call_func(
-                'CfdSetScriptTreeFromString', handle.get_handle(),
-                tree_handle.get_handle(), self.tree_str,
-                self.tapscript.hex, self.leaf_version, self.taget_node_str)
-            hash, tapleaf_hash, control_block = util.call_func(
-                'CfdGetTaprootScriptTreeHash', handle.get_handle(),
-                tree_handle.get_handle(), to_hex_string(pk))
-            return SchnorrPubkey(hash), ByteData(tapleaf_hash), \
-                self.tapscript, ByteData(control_block)
-
-    ##
-    # @brief get tweaked privkey.
-    # @param[in] internal_privkey   internal privkey
-    # @return privkey.
-    def get_privkey(self, internal_privkey: 'Privkey') -> 'Privkey':
-        util = get_util()
-        with util.create_handle() as handle, TapBranch._get_handle(
-                util, handle) as tree_handle:
-            tapscript = self.tapscript.hex if self.tapscript else ''
-            util.call_func(
-                'CfdSetScriptTreeFromString', handle.get_handle(),
-                tree_handle.get_handle(), self.tree_str,
-                tapscript, self.leaf_version, self.taget_node_str)
-            tweaked_privkey = util.call_func(
-                'CfdGetTaprootTweakedPrivkey', handle.get_handle(),
-                tree_handle.get_handle(), to_hex_string(internal_privkey))
-            return Privkey(hex=tweaked_privkey)
+        if not self.tapscript:
+            raise CfdError(CfdErrorCode.ILLEGAL_STATE, 'tapscript not found.')
+        return super()._get_taproot_data(pk, self.tapscript)
 
 
 ##

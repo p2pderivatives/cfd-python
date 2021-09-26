@@ -1,5 +1,4 @@
 from unittest import TestCase
-from unittest.main import main
 from tests.util import load_json_file, exec_test,\
     assert_equal, assert_error, assert_match, assert_message
 from cfd.address import AddressUtil
@@ -57,6 +56,7 @@ def test_address_func(obj, name, case, req, exp, error):
         elif name == 'Address.GetTapScriptTreeInfo':
             resp = {}
             nodes = []
+            topNode = req['tree'][0]
             for node in req['tree'][1:]:
                 if 'tapscript' in node:
                     nodes.append(Script(node['tapscript']))
@@ -66,41 +66,38 @@ def test_address_func(obj, name, case, req, exp, error):
                     nodes.append(ByteData(node['branchHash']))
             pk = None if 'internalPubkey' not in req else SchnorrPubkey(
                 req['internalPubkey'])
-            if 'tapscript' in req['tree'][0]:
+            if 'tapscript' in topNode:
                 tree = TaprootScriptTree.create(
-                    Script(req['tree'][0]['tapscript']), nodes, pk)
-                if 'internalPubkey' not in req:
-                    tapleaf_hash = tree.get_base_hash()
-                    resp = {
-                        'tapLeafHash': tapleaf_hash,
-                        'tapscript': tree.tapscript,
-                    }
-                else:
-                    tap_data = tree.get_taproot_data()
-                    addr = AddressUtil.taproot(tree, network=_network)
-                    resp = {
-                        'tapLeafHash': tap_data[1],
-                        'tapscript': tap_data[2],
-                        'tweakedPubkey': tap_data[0],
-                        'controlBlock': tap_data[3],
-                        'address': addr.address,
-                        'lockingScript': addr.locking_script,
-                    }
-                if 'internalPrivkey' in req:
-                    tweak_privkey = tree.get_privkey(
-                        Privkey(hex=req['internalPrivkey']))
-                    resp['tweakedPrivkey'] = tweak_privkey
-                nodes = []
-                for node in tree.branches:
-                    if isinstance(node, TapBranch):
-                        nodes.append(node.get_current_hash())
-                    else:
-                        nodes.append(str(node))
-                resp['nodes'] = nodes
-            elif 'treeString' in node:
-                tree = TapBranch(tree_str=node['treeString'])
+                    Script(topNode['tapscript']), nodes, pk)
+                tapleaf_hash = tree.get_base_hash()
+                resp['tapLeafHash'] = tapleaf_hash
+                resp['tapscript'] = tree.tapscript
+            elif 'treeString' in topNode:
+                tree = TapBranch(tree_str=topNode['treeString'])
+                tree.add_branches(nodes)
             else:
-                tree = TapBranch(ByteData(node['branchHash']))
+                tree = TapBranch(ByteData(topNode['branchHash']))
+                tree.add_branches(nodes)
+            if 'internalPubkey' in req:
+                tap_data = tree.get_taproot_data(pk)
+                addr = AddressUtil.taproot(
+                    pk, script_tree=tree, network=_network)
+                resp['tweakedPubkey'] = tap_data[0]
+                resp['controlBlock'] = tap_data[3]
+                resp['address'] = addr.address
+                resp['lockingScript'] = addr.locking_script
+            if 'internalPrivkey' in req:
+                tweak_privkey = tree.get_privkey(
+                    Privkey(hex=req['internalPrivkey']))
+                resp['tweakedPrivkey'] = tweak_privkey
+            nodes = []
+            for node in tree.branches:
+                if isinstance(node, TapBranch):
+                    nodes.append(node.get_current_hash())
+                else:
+                    nodes.append(str(node))
+            if nodes and ('tapscript' in topNode):
+                resp['nodes'] = nodes
             resp['topBranchHash'] = tree.get_current_hash()
             resp['treeString'] = tree.as_str()
 
@@ -126,7 +123,8 @@ def test_address_func(obj, name, case, req, exp, error):
                     nodes.append(node.get_current_hash())
                 else:
                     nodes.append(str(node))
-            resp['nodes'] = nodes
+            if nodes:
+                resp['nodes'] = nodes
             if 'internalPrivkey' in req:
                 tweak_privkey = tree.get_privkey(
                     Privkey(hex=req['internalPrivkey']))
@@ -134,43 +132,46 @@ def test_address_func(obj, name, case, req, exp, error):
 
         elif name == 'Address.GetTapScriptTreeFromString':
             resp = {}
+            pk = None if 'internalPubkey' not in req else SchnorrPubkey(
+                req['internalPubkey'])
             if 'tapscript' in req:
                 nodes = [ByteData(node) for node in req.get('nodes', [])]
-                pk = None if 'internalPubkey' not in req else SchnorrPubkey(
-                    req['internalPubkey'])
-                tree = TaprootScriptTree.from_string(
+                tree = TaprootScriptTree.from_string_and_key(
                     req['treeString'], Script(req['tapscript']), nodes, pk)
-                if pk is not None:
-                    tap_data = tree.get_taproot_data()
-                    addr = AddressUtil.taproot(tree, network=_network)
-                    resp = {
-                        'tweakedPubkey': tap_data[0],
-                        'controlBlock': tap_data[3],
-                        'address': addr.address,
-                        'lockingScript': addr.locking_script,
-                    }
-                if 'internalPrivkey' in req:
-                    tweak_privkey = tree.get_privkey(
-                        Privkey(hex=req['internalPrivkey']))
-                    resp['tweakedPrivkey'] = tweak_privkey
                 resp['tapLeafHash'] = tree.get_base_hash()
                 resp['tapscript'] = tree.tapscript
-                nodes = []
-                for node in tree.branches:
-                    if isinstance(node, TapBranch):
-                        nodes.append(node.get_current_hash())
-                    else:
-                        nodes.append(str(node))
-                resp['nodes'] = nodes
             else:
                 tree = TapBranch(tree_str=req['treeString'])
+
+            if pk is not None:
+                tap_data = tree.get_taproot_data(pk)
+                addr = AddressUtil.taproot(
+                    pk, script_tree=tree, network=_network)
+                resp = {
+                    'tweakedPubkey': tap_data[0],
+                    'controlBlock': tap_data[3],
+                    'address': addr.address,
+                    'lockingScript': addr.locking_script,
+                }
+            if 'internalPrivkey' in req:
+                tweak_privkey = tree.get_privkey(
+                    Privkey(hex=req['internalPrivkey']))
+                resp['tweakedPrivkey'] = tweak_privkey
+            nodes = []
+            for node in tree.branches:
+                if isinstance(node, TapBranch):
+                    nodes.append(node.get_current_hash())
+                else:
+                    nodes.append(str(node))
+            if nodes and ('tapscript' in req):
+                resp['nodes'] = nodes
             resp['topBranchHash'] = tree.get_current_hash()
             resp['treeString'] = tree.as_str()
 
         elif name == 'Address.GetTapBranchInfo':
             resp = {}
             nodes = [ByteData(node) for node in req.get('nodes', [])]
-            tree = TaprootScriptTree.from_string(
+            tree = TaprootScriptTree.from_string_and_key(
                 req['treeString'], Script(req.get('tapscript', '')), nodes)
             branch = tree.branches[req.get('index', 0)]
             resp['tapLeafHash'] = branch.get_base_hash()
@@ -180,7 +181,8 @@ def test_address_func(obj, name, case, req, exp, error):
                     nodes.append(node.get_current_hash())
                 else:
                     nodes.append(str(node))
-            resp['nodes'] = nodes
+            if nodes:
+                resp['nodes'] = nodes
             resp['topBranchHash'] = branch.get_current_hash()
             resp['treeString'] = branch.as_str()
 
@@ -241,6 +243,8 @@ def test_address_func(obj, name, case, req, exp, error):
                         assert_match(obj, name, case, str(exp[key][index]),
                                      str(list_val), f'{key}:{index}')
                 else:
+                    if (key in exp) and (str(val) != exp[key]):
+                        print(f'unmatch: {str(val)}')
                     assert_equal(obj, name, case, exp, val, key)
         elif isinstance(resp, list):
             assert_match(obj, name, case, len(exp['addresses']),
@@ -293,7 +297,7 @@ def test_address_func(obj, name, case, req, exp, error):
         assert_equal(obj, name, case, exp, err.message)
 
 
-def test_pegin_address_func(obj, name, case, req, exp, error):
+def test_pegged_address_func(obj, name, case, req, exp, error):
     try:
         resp = None
 
@@ -310,6 +314,18 @@ def test_pegin_address_func(obj, name, case, req, exp, error):
                 'tweakFedpegscript': ret[2],
             }
 
+        elif name == 'PegoutAddress.Create':
+            ret = AddressUtil.get_pegout_address(
+                descriptor=req['descriptor'],
+                bip32_counter=req.get('bip32Counter', 0),
+                hash_type=req.get('hashType', 'p2pkh'),
+                mainchain_network=req.get('network', 'mainnet'),
+                elements_network=req.get('elementsNetwork', 'liquidv1'))
+            resp = {
+                'mainchainAddress': ret[0],
+                'baseDescriptor': ret[1],
+            }
+
         else:
             raise Exception('unknown name: ' + name)
         assert_error(obj, name, case, error)
@@ -321,6 +337,11 @@ def test_pegin_address_func(obj, name, case, req, exp, error):
                          str(resp['claimScript']), 'claimScript')
             assert_equal(obj, name, case, exp,
                          str(resp['tweakFedpegscript']), 'tweakFedpegscript')
+        elif name == 'PegoutAddress.Create':
+            assert_equal(obj, name, case, exp,
+                         str(resp['mainchainAddress']), 'mainchainAddress')
+            assert_equal(obj, name, case, exp,
+                         str(resp['baseDescriptor']), 'baseDescriptor')
 
     except CfdError as err:
         if not error:
@@ -354,4 +375,7 @@ class TestElementsAddress(TestCase):
         self.test_list = load_json_file('elements_address_test.json')
 
     def test_pegin_address(self):
-        exec_test(self, 'PeginAddress', test_pegin_address_func)
+        exec_test(self, 'PeginAddress', test_pegged_address_func)
+
+    def test_pegout_address(self):
+        exec_test(self, 'PegoutAddress', test_pegged_address_func)

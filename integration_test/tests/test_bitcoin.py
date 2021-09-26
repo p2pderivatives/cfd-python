@@ -1,15 +1,15 @@
-from cfd.taproot import TaprootScriptTree
 import unittest
 from helper import RpcWrapper, get_utxo
-from cfd.address import AddressUtil, Address
+from cfd.address import AddressUtil
 from cfd.key import SchnorrUtil, SigHashType, SchnorrPubkey, SignParameter
 from cfd.hdwallet import HDWallet
 from cfd.script import HashType, Script
-from cfd.descriptor import parse_descriptor, Descriptor
+from cfd.descriptor import parse_descriptor
 from cfd.psbt import Psbt, PsbtAppendInputData, PsbtAppendOutputData
+from cfd.taproot import TaprootScriptTree, TapBranch
 from cfd.transaction import OutPoint, Transaction, TxIn, TxOut, UtxoData
 from decimal import Decimal
-from typing import List, Union
+from typing import List
 import logging
 import time
 
@@ -721,6 +721,208 @@ def test_taproot_tapscript(test_obj: 'TestBitcoin'):
     print('UTXO: {}'.format(utxos))
 
 
+def test_taproot_single_key(test_obj: 'TestBitcoin'):
+    btc_rpc = test_obj.conn.get_rpc()
+    main_addr = test_obj.addr_dic['main']
+    main_pk, _ = SchnorrPubkey.from_pubkey(str(main_addr.pubkey))
+    pkh_addr = test_obj.addr_dic['p2pkh']
+    spk1, _ = SchnorrPubkey.from_pubkey(str(pkh_addr.pubkey))
+    wpkh_addr = test_obj.addr_dic['p2wpkh']
+    spk2, _ = SchnorrPubkey.from_pubkey(str(wpkh_addr.pubkey))
+    main_path = str(test_obj.path_dic[str(main_addr)])
+    main_sk = test_obj.hdwallet.get_privkey(path=main_path).privkey
+    pkh_path = str(test_obj.path_dic[str(pkh_addr)])
+    sk1 = test_obj.hdwallet.get_privkey(path=pkh_path).privkey
+    wpkh_path = str(test_obj.path_dic[str(wpkh_addr)])
+    sk2 = test_obj.hdwallet.get_privkey(path=wpkh_path).privkey
+
+    branch = TapBranch()
+    tr_addr1 = AddressUtil.taproot(
+        main_pk, script_tree=branch, network=NETWORK)
+    tr_sk1 = branch.get_privkey(main_sk)
+    tr_addr2 = AddressUtil.taproot(spk1, script_tree=branch, network=NETWORK)
+    tr_sk2 = branch.get_privkey(sk1)
+    tr_addr3 = AddressUtil.taproot(spk2, script_tree=branch, network=NETWORK)
+    tr_sk3 = branch.get_privkey(sk2)
+
+    txouts = [
+        TxOut(100000, str(tr_addr1)),
+        TxOut(150000, str(tr_addr2)),
+        TxOut(200000, str(tr_addr3)),
+    ]
+    tx = Transaction.create(2, 0, [], txouts)
+    # fundrawtransaction
+    fee_addr = str(test_obj.addr_dic['fee'])
+    fee_desc = test_obj.desc_dic[fee_addr]
+    fee_sk = test_obj.hdwallet.get_privkey(path=FEE_PATH).privkey
+    utxos = get_utxo(btc_rpc, [fee_addr])
+    utxo_list = convert_bitcoin_utxos(test_obj, utxos)
+    tx.fund_raw_transaction([], utxo_list, fee_addr,
+                            target_amount=0, effective_fee_rate=2.0,
+                            knapsack_min_change=0)
+    # add sign
+    for txin in tx.txin_list:
+        utxo = search_utxos(test_obj, utxo_list, txin.outpoint)
+        tx.sign_with_privkey(txin.outpoint, fee_desc.data.hash_type, fee_sk,
+                             amount=utxo.amount,
+                             sighashtype=SigHashType.ALL)
+    # broadcast
+    print(Transaction.parse_to_json(str(tx), network=NETWORK))
+    btc_rpc.sendrawtransaction(str(tx))
+    # generate block
+    btc_rpc.generatetoaddress(2, fee_addr)
+    time.sleep(2)
+
+    txid = tx.txid
+    utxo1 = UtxoData(txid=txid, vout=0, amount=txouts[0].amount,
+                     descriptor=f'raw({str(tr_addr1.locking_script)})')
+    utxo2 = UtxoData(txid=txid, vout=1, amount=txouts[1].amount,
+                     descriptor=f'raw({str(tr_addr2.locking_script)})')
+    utxo3 = UtxoData(txid=txid, vout=2, amount=txouts[2].amount,
+                     descriptor=f'raw({str(tr_addr3.locking_script)})')
+
+    # send taproot singleKey1
+    txin_list = []
+    txin_utxo_list = []
+    txin_list.append(TxIn(txid=txid, vout=0))
+    txin_utxo_list.append(utxo1)
+    txouts2 = [
+        TxOut(txouts[0].amount, str(test_obj.addr_dic['main'])),
+    ]
+    tx2 = Transaction.create(2, 0, txin_list, txouts2)
+    main_addr = test_obj.addr_dic['main']
+    utxos = get_utxo(btc_rpc, [fee_addr])
+    utxo_list = convert_bitcoin_utxos(test_obj, utxos)
+    tx2.fund_raw_transaction(txin_utxo_list, utxo_list, fee_addr,
+                             target_amount=0, effective_fee_rate=2.0,
+                             knapsack_min_change=0)
+    # add sign
+    join_utxo_list: List['UtxoData'] = []
+    join_utxo_list[len(join_utxo_list):len(join_utxo_list)] = txin_utxo_list
+    for txin in tx2.txin_list:
+        for utxo in utxo_list:
+            if utxo.outpoint == txin.outpoint:
+                join_utxo_list.append(utxo)
+    for index, txin in enumerate(tx2.txin_list):
+        utxo = search_utxos(test_obj, join_utxo_list, txin.outpoint)
+        if index == 0:
+            sighash = tx2.get_sighash(
+                txin.outpoint, HashType.TAPROOT, pubkey=tr_addr1.pubkey,
+                sighashtype=SigHashType.DEFAULT, utxos=join_utxo_list)
+            sig = SchnorrUtil.sign(sighash, tr_sk1)
+            sign_param = SignParameter(sig, sighashtype=SigHashType.DEFAULT)
+            tx2.add_taproot_sign(txin.outpoint, sign_param)
+        else:
+            path = str(test_obj.path_dic[str(utxo.descriptor.data.address)])
+            sk = test_obj.hdwallet.get_privkey(path=path).privkey
+            hash_type = utxo.descriptor.data.hash_type
+            tx2.sign_with_privkey(txin.outpoint, hash_type,
+                                  sk, amount=utxo.amount,
+                                  sighashtype=SigHashType.ALL,
+                                  utxos=join_utxo_list)
+    # broadcast
+    print(Transaction.parse_to_json(str(tx2), network=NETWORK))
+    btc_rpc.sendrawtransaction(str(tx2))
+    # generate block
+    btc_rpc.generatetoaddress(2, fee_addr)
+    time.sleep(2)
+
+    # send taproot singleKey2
+    txin_list = []
+    txin_utxo_list = []
+    txin_list.append(TxIn(txid=txid, vout=1))
+    txin_utxo_list.append(utxo2)
+    txouts2 = [
+        TxOut(txouts[1].amount, str(test_obj.addr_dic['main'])),
+    ]
+    tx2 = Transaction.create(2, 0, txin_list, txouts2)
+    main_addr = test_obj.addr_dic['main']
+    utxos = get_utxo(btc_rpc, [fee_addr])
+    utxo_list = convert_bitcoin_utxos(test_obj, utxos)
+    tx2.fund_raw_transaction(txin_utxo_list, utxo_list, fee_addr,
+                             target_amount=0, effective_fee_rate=2.0,
+                             knapsack_min_change=0)
+    # add sign
+    join_utxo_list = []
+    join_utxo_list[len(join_utxo_list):len(join_utxo_list)] = txin_utxo_list
+    for txin in tx2.txin_list:
+        for utxo in utxo_list:
+            if utxo.outpoint == txin.outpoint:
+                join_utxo_list.append(utxo)
+    for index, txin in enumerate(tx2.txin_list):
+        utxo = search_utxos(test_obj, join_utxo_list, txin.outpoint)
+        if index == 0:
+            sighash = tx2.get_sighash(
+                txin.outpoint, HashType.TAPROOT, pubkey=tr_addr2.pubkey,
+                sighashtype=SigHashType.DEFAULT, utxos=join_utxo_list)
+            sig = SchnorrUtil.sign(sighash, tr_sk2)
+            sign_param = SignParameter(sig, sighashtype=SigHashType.DEFAULT)
+            tx2.add_taproot_sign(txin.outpoint, sign_param)
+        else:
+            path = str(test_obj.path_dic[str(utxo.descriptor.data.address)])
+            sk = test_obj.hdwallet.get_privkey(path=path).privkey
+            hash_type = utxo.descriptor.data.hash_type
+            tx2.sign_with_privkey(txin.outpoint, hash_type,
+                                  sk, amount=utxo.amount,
+                                  sighashtype=SigHashType.ALL,
+                                  utxos=join_utxo_list)
+    # broadcast
+    print(Transaction.parse_to_json(str(tx2), network=NETWORK))
+    btc_rpc.sendrawtransaction(str(tx2))
+    # generate block
+    btc_rpc.generatetoaddress(2, fee_addr)
+    time.sleep(2)
+
+    # send taproot singleKey3
+    txin_list = []
+    txin_utxo_list = []
+    txin_list.append(TxIn(txid=txid, vout=2))
+    txin_utxo_list.append(utxo3)
+    txouts2 = [
+        TxOut(txouts[2].amount, str(test_obj.addr_dic['main'])),
+    ]
+    tx2 = Transaction.create(2, 0, txin_list, txouts2)
+    main_addr = test_obj.addr_dic['main']
+    utxos = get_utxo(btc_rpc, [fee_addr])
+    utxo_list = convert_bitcoin_utxos(test_obj, utxos)
+    tx2.fund_raw_transaction(txin_utxo_list, utxo_list, fee_addr,
+                             target_amount=0, effective_fee_rate=2.0,
+                             knapsack_min_change=0)
+    # add sign
+    join_utxo_list = []
+    join_utxo_list[len(join_utxo_list):len(join_utxo_list)] = txin_utxo_list
+    for txin in tx2.txin_list:
+        for utxo in utxo_list:
+            if utxo.outpoint == txin.outpoint:
+                join_utxo_list.append(utxo)
+    for index, txin in enumerate(tx2.txin_list):
+        utxo = search_utxos(test_obj, join_utxo_list, txin.outpoint)
+        if index == 0:
+            sighash = tx2.get_sighash(
+                txin.outpoint, HashType.TAPROOT, pubkey=tr_addr3.pubkey,
+                sighashtype=SigHashType.DEFAULT, utxos=join_utxo_list)
+            sig = SchnorrUtil.sign(sighash, tr_sk3)
+            sign_param = SignParameter(sig, sighashtype=SigHashType.DEFAULT)
+            tx2.add_taproot_sign(txin.outpoint, sign_param)
+        else:
+            path = str(test_obj.path_dic[str(utxo.descriptor.data.address)])
+            sk = test_obj.hdwallet.get_privkey(path=path).privkey
+            hash_type = utxo.descriptor.data.hash_type
+            tx2.sign_with_privkey(txin.outpoint, hash_type,
+                                  sk, amount=utxo.amount,
+                                  sighashtype=SigHashType.ALL,
+                                  utxos=join_utxo_list)
+    # broadcast
+    print(Transaction.parse_to_json(str(tx2), network=NETWORK))
+    btc_rpc.sendrawtransaction(str(tx2))
+    # generate block
+    btc_rpc.generatetoaddress(2, fee_addr)
+    time.sleep(2)
+
+    utxos = get_utxo(btc_rpc, [str(main_addr)])
+    print('UTXO: {}'.format(utxos))
+
+
 class TestBitcoin(unittest.TestCase):
     hdwallet: 'HDWallet'
     # addr_dic: dict[str, 'Address']
@@ -753,6 +955,7 @@ class TestBitcoin(unittest.TestCase):
         test_psbt(self)
         test_taproot_schnorr(self)
         test_taproot_tapscript(self)
+        test_taproot_single_key(self)
 
 
 if __name__ == "__main__":

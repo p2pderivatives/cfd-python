@@ -1,7 +1,7 @@
 import os
 import glob
 
-__version__ = '0.1.0'
+__version__ = '0.3.0'
 
 __all__ = [
     os.path.split(os.path.splitext(file)[0])[1]
@@ -10,6 +10,7 @@ __all__ = [
 ]
 """
 'address',
+'block',
 'confidential_address',
 'confidential_transaction',
 'crypto',

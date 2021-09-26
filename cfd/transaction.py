@@ -42,9 +42,9 @@ class Txid(ReverseByteData):
 class BlockHash(ReverseByteData):
     ##
     # @brief constructor.
-    # @param[in] txid   txid
-    def __init__(self, txid):
-        super().__init__(txid)
+    # @param[in] hash   block hash
+    def __init__(self, hash):
+        super().__init__(hash)
         if len(self.hex) != 64:
             raise CfdError(
                 error_code=1, message='Error: Invalid block hash.')
@@ -498,6 +498,25 @@ class _TransactionBase:
                     else:
                         raise err
             return list
+
+    ##
+    # @brief update witness stack.
+    # @param[in] outpoint       outpoint
+    # @param[in] sequence       sequence number
+    # @return void
+    def update_sequence(
+            self, outpoint: 'OutPoint', sequence: int) -> None:
+        util = get_util()
+        with util.create_handle() as handle, self._get_handle(
+                handle, self.network) as tx_handle:
+            self.hex = util.call_func(
+                'CfdUpdateTxInSequence', handle.get_handle(),
+                tx_handle.get_handle(), str(outpoint.txid),
+                outpoint.vout, sequence)
+            self.hex = util.call_func(
+                'CfdFinalizeTransaction', handle.get_handle(),
+                tx_handle.get_handle())
+            self._update_txin_internal(handle, tx_handle, outpoint)
 
     ##
     # @brief update witness stack.
@@ -1444,11 +1463,11 @@ class Transaction(_TransactionBase):
                            'CfdFreeEstimateFeeHandle') as tx_handle:
                 for utxo in utxo_list:
                     util.call_func(
-                        'CfdAddTxInTemplateForEstimateFee',
+                        'CfdAddTxInputForEstimateFee',
                         handle.get_handle(), tx_handle.get_handle(),
                         str(utxo.outpoint.txid), utxo.outpoint.vout,
                         str(utxo.descriptor), '', False, False, False,
-                        0, '', to_hex_string(utxo.scriptsig_template))
+                        '', 0, 0, to_hex_string(utxo.scriptsig_template))
 
                 _txout_fee = ctypes.c_int64()
                 _utxo_fee = ctypes.c_int64()
@@ -1506,11 +1525,11 @@ class Transaction(_TransactionBase):
                            'CfdFreeFundRawTxHandle') as tx_handle:
                 for utxo in txin_utxo_list:
                     util.call_func(
-                        'CfdAddTxInTemplateForFundRawTx',
+                        'CfdAddTxInputForFundRawTx',
                         handle.get_handle(), tx_handle.get_handle(),
                         str(utxo.outpoint.txid), utxo.outpoint.vout,
                         utxo.amount, str(utxo.descriptor),
-                        '', False, False, False, 0, '',
+                        '', False, False, False, '', 0, 0,
                         to_hex_string(utxo.scriptsig_template))
                 for utxo in utxo_list:
                     util.call_func(

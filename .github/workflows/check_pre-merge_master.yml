@@ -4,6 +4,7 @@ on:
   push:
     branches:
     - master
+    - stable_v*
     paths-ignore:
     - '.github/workflows/create_release-and-upload.yml'
     - '.github/workflows/code_scanner.yml'
@@ -11,6 +12,7 @@ on:
   pull_request:
     branches:
     - master
+    - stable_v*
 
 env:
   GITHUB_VERSION: v0.0.10

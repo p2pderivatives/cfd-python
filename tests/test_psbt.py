@@ -580,9 +580,9 @@ def test_psbt_func(obj, name, case, req, exp, error):
             utxos = []
             desc = req['reservedDescriptor']
             fee_rate = req['feeInfo']['feeRate']
-            long_term_fee_rate = req['feeInfo']['longTermFeeRate']
+            long_term_fee_rate = req['feeInfo'].get('longTermFeeRate', 20.0)
             knapsack_min_change = req['feeInfo']['knapsackMinChange']
-            dust_fee_rate = req['feeInfo']['dustFeeRate']
+            dust_fee_rate = req['feeInfo'].get('dustFeeRate', 3.0)
             for utxo in req.get('utxos', []):
                 utxos.append(
                     UtxoData(
