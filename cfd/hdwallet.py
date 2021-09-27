@@ -139,26 +139,22 @@ class Extkey(object):
         _extkey = str(extkey)
         with self.util.create_handle() as handle:
             result = self.util.call_func(
-                'CfdGetExtkeyInformation', handle.get_handle(), _extkey)
+                'CfdGetExtkeyInfo', handle.get_handle(), _extkey)
             self.version, _fingerprint, _chain_code, self.depth, \
-                self.child_number = result
+                self.child_number, key_type, network_type = result
             self.fingerprint = ByteData(_fingerprint)
             self.chain_code = ByteData(_chain_code)
             self.extkey = _extkey
             if self.extkey_type == ExtKeyType.EXT_PRIVKEY:
-                main, test, name = XPRIV_MAINNET_VERSION,\
-                    XPRIV_TESTNET_VERSION, 'privkey'
+                name = 'privkey'
             else:
-                main, test, name = XPUB_MAINNET_VERSION,\
-                    XPUB_TESTNET_VERSION, 'pubkey'
-            if self.version == main:
-                self.network = Network.MAINNET
-            elif self.version == test:
-                self.network = Network.TESTNET
-            else:
+                name = 'pubkey'
+            if self.extkey_type.value != key_type:
                 raise CfdError(
                     error_code=1,
                     message='Error: Invalid ext {}.'.format(name))
+                pass
+            self.network = Network.get(network_type)
 
     ##
     # @brief get extkey information.

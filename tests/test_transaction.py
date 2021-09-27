@@ -85,6 +85,9 @@ def test_transaction_func1(obj, name, case, req, exp, error):
             resp.update_witness_stack(
                 OutPoint(txin['txid'], txin['vout']),
                 witness.get('index', 0), data)
+        elif name == 'Transaction.UpdateTxInSequence':
+            resp.update_sequence(
+                OutPoint(req['txid'], req['vout']), req['sequence'])
         else:
             return False
         assert_error(obj, name, case, error)

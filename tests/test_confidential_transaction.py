@@ -100,7 +100,8 @@ def test_ct_transaction_func1(obj, name, case, req, exp, error):
                         mainchain_genesis_block_hash=block_hash,
                         online_pubkey=pegout['onlinePubkey'],
                         master_online_key=pegout['masterOnlineKey'],
-                        mainchain_output_descriptor=pegout['bitcoinDescriptor'],
+                        mainchain_output_descriptor=pegout.get(
+                            'bitcoinDescriptor', ''),
                         bip32_counter=pegout['bip32Counter'],
                         whitelist=pegout['whitelist'])
                     btc_addresses.append(addr)
@@ -146,6 +147,10 @@ def test_ct_transaction_func1(obj, name, case, req, exp, error):
             resp.update_witness_stack(
                 OutPoint(txin['txid'], txin['vout']),
                 witness.get('index', 0), data)
+        elif name == 'ConfidentialTransaction.UpdateTxInSequence':
+            resp, _, _ = get_tx()
+            resp.update_sequence(
+                OutPoint(req['txid'], req['vout']), req['sequence'])
         elif name == 'ConfidentialTransaction.UpdatePeginWitnessStack':
             resp, _, _ = get_tx()
             txin = req['txin']
@@ -355,10 +360,13 @@ def test_ct_transaction_func2(obj, name, case, req, exp, error):
 
 def test_ct_transaction_func3(obj, name, case, req, exp, error):
     try:
+        tx_obj = None
         if name == 'ConfidentialTransaction.Decode':
+            tx_hex = req.get('hex', '')
             resp = ConfidentialTransaction.parse_to_json(
-                req.get('hex', ''), req.get('network', 'mainnet'),
+                tx_hex, req.get('network', 'mainnet'),
                 req.get('fullDump', False))
+            tx_obj = ConfidentialTransaction(tx_hex)
         elif name == 'ConfidentialTransaction.CreateSighash':
             resp = ConfidentialTransaction.from_hex(req['tx'])
             txin = req['txin']
@@ -409,6 +417,24 @@ def test_ct_transaction_func3(obj, name, case, req, exp, error):
             exp_json = exp_json.replace(': ', ':')
 
             assert_match(obj, name, case, exp_json, resp, 'json')
+
+            # pegout output check
+            sidechain_network = req.get('network', 'liquidv1')
+            mainchain_network = Network.REGTEST
+            if sidechain_network == Network.LIQUID_V1:
+                mainchain_network = Network.MAINNET
+            for vout in exp['vout']:
+                addrs = vout.get('scriptPubKey', {}).get(
+                    'pegout_addresses', '')
+                if isinstance(addrs, list):
+                    idx = vout['n']
+                    exp_addr = addrs[0]
+                    has_pegout = tx_obj.has_pegout(idx)
+                    addr = tx_obj.get_pegout_address(idx, mainchain_network)
+                    assert_match(obj, name, case, True,
+                                 has_pegout, f'hasPegout:${idx}')
+                    assert_match(obj, name, case, exp_addr,
+                                 str(addr), f'pegoutAddr:${idx}')
         elif name == 'ConfidentialTransaction.GetWitnessStackNum':
             assert_equal(obj, name, case, exp, resp, 'count')
         elif name == 'Transaction.GetTxInIndex':
@@ -982,27 +1008,30 @@ def test_elements_tx_func(obj, name, case, req, exp, error):
             resp = tx.estimate_fee(
                 utxo_list, fee_rate=req.get('feeRate', 0.15),
                 fee_asset=req.get('feeAsset', ''),
-                is_blind=req.get('isBlind', True),
+                is_blind=req.get('isBlind',
+                                 req.get('isBlindEstimateFee', True)),
                 exponent=req.get('exponent', 0),
                 minimum_bits=req.get('minimumBits', 52))
         elif name == 'Elements.FundTransaction':
             tx = ConfidentialTransaction.from_hex(req['tx'])
             txin_utxo_list = convert_elements_utxo(req['selectUtxos'])
-            utxo_list = obj.utxos.get(req['utxoFile'], [])
+            utxo_list = obj.utxos.get(req.get('utxoFile', ''), [])
             target_list = convert_target_amount(req['targets'])
             fee_info = req.get('feeInfo', {})
             tx_fee, used_addr_list = tx.fund_raw_transaction(
                 txin_utxo_list,
                 utxo_list,
                 target_list,
-                fee_asset=fee_info.get('feeAsset', -1),
+                fee_asset=fee_info.get('feeAsset', ''),
                 effective_fee_rate=fee_info.get('feeRate', 20.0),
                 long_term_fee_rate=fee_info.get('longTermFeeRate', 20.0),
                 dust_fee_rate=fee_info.get('dustFeeRate', 3.0),
                 knapsack_min_change=fee_info.get('knapsackMinChange', -1),
-                is_blind=req.get('isBlind', True),
-                exponent=req.get('exponent', 0),
-                minimum_bits=req.get('minimumBits', 52))
+                is_blind=fee_info.get('isBlind',
+                                      fee_info.get(
+                                          'isBlindEstimateFee', True)),
+                exponent=fee_info.get('exponent', 0),
+                minimum_bits=fee_info.get('minimumBits', 52))
             resp = {'hex': str(tx), 'usedAddresses': used_addr_list,
                     'feeAmount': tx_fee}
         else:
@@ -1031,9 +1060,15 @@ def test_elements_tx_func(obj, name, case, req, exp, error):
                              total_amount_map[str(exp_amount_data.asset)],
                              'selectedAmounts:{}:amount'.format(
                                  exp_amount_data.asset))
+            if utxo_fee != 0:
+                feeAmount = fee_info.get('txFeeAmount', 0) + utxo_fee
+                assert_equal(obj, name, case, exp, feeAmount, 'feeAmount')
         elif name == 'Elements.EstimateFee':
             total_fee, txout_fee, utxo_fee = resp
-            assert_equal(obj, name, case, exp, total_fee, 'feeAmount')
+            if (exp['feeAmount'] != total_fee) and (
+                    exp['feeAmount'] + 1 != total_fee):
+                assert_equal(obj, name, case, exp, total_fee, 'feeAmount')
+                # It is not an exact value because it is just an addition.
             assert_equal(obj, name, case, exp, txout_fee, 'txoutFeeAmount')
             assert_equal(obj, name, case, exp, utxo_fee, 'utxoFeeAmount')
         elif name == 'Elements.FundTransaction':
@@ -1073,7 +1108,8 @@ def convert_elements_utxo(json_utxo_list):
             is_blind_issuance=utxo.get('isBlindIssuance', True),
             is_pegin=utxo.get('isPegin', False),
             pegin_btc_tx_size=utxo.get('peginBtcTxSize', 0),
-            fedpeg_script=utxo.get('fedpegScript', ''),
+            pegin_txoutproof_size=utxo.get('peginTxOutProofSize', 0),
+            claim_script=utxo.get('claimScript', ''),
             asset_blinder=utxo.get('assetBlindFactor', ''),
             amount_blinder=utxo.get('blindFactor', ''))
         utxo_list.append(data)
@@ -1119,6 +1155,8 @@ class TestConfidentialTransaction(TestCase):
             get_json_file('utxo/elements_utxo_2.json'))
         self.utxos['elements_utxo_3'] = convert_elements_utxo(
             get_json_file('utxo/elements_utxo_3.json'))
+        self.utxos['elements_utxo_4'] = convert_elements_utxo(
+            get_json_file('utxo/elements_utxo_4.json'))
 
     def test_confidential_transaction(self):
         exec_test(self, 'ConfidentialTransaction', test_ct_transaction_func)

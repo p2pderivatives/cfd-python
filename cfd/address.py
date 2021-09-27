@@ -7,7 +7,7 @@ from typing import Tuple, Union, Optional, List
 from .util import get_util, CfdError, JobHandle, to_hex_string
 from .key import Network, Pubkey, SchnorrPubkey
 from .script import HashType, Script
-from .taproot import TaprootScriptTree
+from .taproot import TaprootScriptTree, TapBranch
 
 
 ##
@@ -49,7 +49,8 @@ class Address:
     ##
     # @var taproot_script_tree
     # Taproot script tree.
-    taproot_script_tree: Optional['TaprootScriptTree'] = None
+    taproot_script_tree: Optional[Union['TaprootScriptTree',
+                                        'TapBranch']] = None
 
     ##
     # @brief constructor.
@@ -204,15 +205,22 @@ class AddressUtil:
     # @return address object.
     @classmethod
     def taproot(
-            cls, pubkey: Union['SchnorrPubkey', 'TaprootScriptTree'],
+            cls, pubkey: Union[
+                'SchnorrPubkey', 'TaprootScriptTree'],
             network=Network.MAINNET,
-            script_tree: Optional['TaprootScriptTree'] = None) -> 'Address':
+            script_tree: Optional[Union[
+                'TaprootScriptTree', 'TapBranch']] = None) -> 'Address':
         if isinstance(pubkey, TaprootScriptTree):
             pk, _, _, _ = pubkey.get_taproot_data()
             addr = cls.from_pubkey_hash(pk, HashType.TAPROOT, network)
             addr.taproot_script_tree = script_tree
             return addr
         elif isinstance(script_tree, TaprootScriptTree):
+            pk, _, _, _ = script_tree.get_taproot_data(pubkey)
+            addr = cls.from_pubkey_hash(pk, HashType.TAPROOT, network)
+            addr.taproot_script_tree = script_tree
+            return addr
+        elif isinstance(script_tree, TapBranch):
             pk, _, _, _ = script_tree.get_taproot_data(pubkey)
             addr = cls.from_pubkey_hash(pk, HashType.TAPROOT, network)
             addr.taproot_script_tree = script_tree
@@ -425,6 +433,35 @@ class AddressUtil:
                 _hash_type.value, _pubkey, _script)
             return cls.parse(addr), Script(claim_script), Script(
                 tweaked_fedpeg)
+
+    ##
+    # @brief get pegout address.
+    # @param[in] descriptor             output descriptor or xpub
+    # @param[in] bip32_counter          bip32 counter
+    # @param[in] hash_type              script hash type
+    # @param[in] mainchain_network      mainchain network type
+    # @param[in] elements_network       elements network type
+    # @retval [0]      pegout address.
+    # @retval [1]      base descriptor.
+    @classmethod
+    def get_pegout_address(
+            cls,
+            descriptor: str,
+            bip32_counter=0,
+            hash_type: Union['HashType', str] = HashType.P2PKH,
+            mainchain_network=Network.MAINNET,
+            elements_network=Network.LIQUID_V1,
+    ) -> Tuple['Address', str]:
+        _hash_type = HashType.get(hash_type)
+        _network = Network.get(mainchain_network)
+        _elements_network = Network.get(elements_network)
+        util = get_util()
+        with util.create_handle() as handle:
+            addr, base_descriptor = util.call_func(
+                'CfdGetPegoutAddress',
+                handle.get_handle(), _network.value, _elements_network.value,
+                str(descriptor), int(bip32_counter), _hash_type.value)
+            return cls.parse(addr), base_descriptor
 
 
 ##
